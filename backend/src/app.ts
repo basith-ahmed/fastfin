@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 
 import { env } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
+import { documentsRouter } from "./routes/documents";
 import { logger } from "./utils/logger";
 
 export function createApp(): express.Express {
@@ -23,6 +24,8 @@ export function createApp(): express.Express {
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
   });
+
+  app.use("/api/documents", documentsRouter);
 
   app.use((_req, res) => {
     res.status(404).json({

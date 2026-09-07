@@ -7,6 +7,7 @@ const config: Config = {
   coverageProvider: "v8",
   preset: "ts-jest",
   roots: ["<rootDir>/tests"],
+  setupFiles: ["<rootDir>/tests/setupEnv.ts"],
   testEnvironment: "node",
 };
 
