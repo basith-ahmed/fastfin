@@ -170,6 +170,7 @@ model Entity {
   facts   Fact[]
 
   @@index([normalizedName])
+  @@unique([normalizedName, entityType])
   @@map("entities")
 }
 
@@ -187,6 +188,7 @@ model EntityAlias {
 
   @@index([entityId])
   @@index([normalizedAlias])
+  @@unique([entityId, normalizedAlias])
   @@map("entity_aliases")
 }
 
@@ -196,6 +198,7 @@ model Fact {
   chunkId            String           @map("chunk_id") @db.Uuid
   entityId           String?          @map("entity_id") @db.Uuid
   subjectRaw         String           @map("subject_raw")
+  subjectType        EntityType       @default(OTHER) @map("subject_type")
   subjectNormalized  String           @map("subject_normalized")
   predicateRaw       String           @map("predicate_raw")
   predicateCanonical String           @map("predicate_canonical")

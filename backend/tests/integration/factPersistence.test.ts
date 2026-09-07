@@ -88,6 +88,7 @@ describe("Phase 6 transactional fact persistence", () => {
       documentId,
       chunkId,
       subjectRaw: "Acme Corporation",
+      subjectType: "ORGANIZATION",
       subjectNormalized: "acme corporation",
       predicateRaw: "reported revenue",
       predicateCanonical: "revenue",

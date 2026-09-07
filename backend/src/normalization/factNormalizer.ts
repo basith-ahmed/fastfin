@@ -8,6 +8,7 @@ export type NormalizedFactDraft = {
   documentId: string;
   chunkId: string;
   subjectRaw: string;
+  subjectType: FactDraft["subject"]["type"];
   subjectNormalized: string;
   predicateRaw: string;
   predicateCanonical: string;
@@ -115,6 +116,7 @@ export function normalizeGroundedFact(
     documentId,
     chunkId: grounded.chunkId,
     subjectRaw: grounded.draft.subject.text,
+    subjectType: grounded.draft.subject.type,
     subjectNormalized,
     predicateRaw: grounded.draft.predicate.raw,
     predicateCanonical,

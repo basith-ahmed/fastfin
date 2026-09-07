@@ -59,6 +59,7 @@ export async function persistGroundedFacts(
           documentId,
           chunkId: normalized.chunkId,
           subjectRaw: normalized.subjectRaw,
+          subjectType: normalized.subjectType,
           subjectNormalized: normalized.subjectNormalized,
           predicateRaw: normalized.predicateRaw,
           predicateCanonical: normalized.predicateCanonical,
