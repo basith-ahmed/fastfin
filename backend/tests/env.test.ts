@@ -11,6 +11,9 @@ describe("environment validation", () => {
       MAX_UPLOAD_MB: "25",
       EMBEDDING_DIMENSIONS: "768",
       FACT_MIN_CONFIDENCE: "0.75",
+      OPENAI_BASE_URL: "https://openrouter.ai/api/v1",
+      LLM_MODEL: "openai/gpt-4o-mini",
+      EMBEDDING_MODEL: "gemini-embedding-2",
     });
 
     expect(result).toMatchObject({
@@ -19,6 +22,9 @@ describe("environment validation", () => {
       MAX_UPLOAD_MB: 25,
       EMBEDDING_DIMENSIONS: 768,
       FACT_MIN_CONFIDENCE: 0.75,
+      OPENAI_BASE_URL: "https://openrouter.ai/api/v1",
+      LLM_MODEL: "openai/gpt-4o-mini",
+      EMBEDDING_MODEL: "gemini-embedding-2",
     });
   });
 

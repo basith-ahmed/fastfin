@@ -33,12 +33,11 @@ const envSchema = z.object({
   MAX_UPLOAD_MB: optionalNumber(z.number().positive(), 50),
 
   OPENAI_API_KEY: z.string().default(""),
-  OPENAI_EXTRACTION_MODEL: z.string().trim().min(1).default("gpt-5.6-luna"),
-  OPENAI_ENTITY_MODEL: z.string().trim().min(1).default("gpt-5.6-luna"),
-  OPENAI_REASONING_MODEL: z.string().trim().min(1).default("gpt-5.6-terra"),
+  OPENAI_BASE_URL: z.string().trim().min(1).default("https://openrouter.ai/api/v1"),
+  LLM_MODEL: z.string().trim().min(1).default("openai/gpt-4o-mini"),
 
   GEMINI_API_KEY: z.string().default(""),
-  GEMINI_EMBEDDING_MODEL: z.string().trim().min(1).default("gemini-embedding-2"),
+  EMBEDDING_MODEL: z.string().trim().min(1).default("gemini-embedding-2"),
   EMBEDDING_DIMENSIONS: optionalNumber(z.literal(768), 768),
 
   LLM_MAX_CONCURRENCY: optionalNumber(z.number().int().positive(), 3),
