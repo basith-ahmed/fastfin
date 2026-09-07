@@ -85,3 +85,9 @@ export interface FactExtractionProvider {
   readonly promptVersion: string;
   extractFacts(input: FactExtractionInput): Promise<FactDraft[]>;
 }
+
+export interface EmbeddingProvider {
+  readonly model: string;
+  readonly dimensions: number;
+  embed(text: string): Promise<number[]>;
+}
