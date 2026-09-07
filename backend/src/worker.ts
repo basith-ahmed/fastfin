@@ -10,6 +10,7 @@ import {
   type DocumentJob,
   type DocumentJobData,
 } from "./jobs/queue";
+import { parseAndPersistDocument } from "./services/documentParsing";
 import { logger } from "./utils/logger";
 
 export type DocumentWorkerHandle = {
@@ -37,42 +38,74 @@ export async function processDocumentJob(job: DocumentJob): Promise<void> {
       throw new Error(`ProcessingJob for document ${documentId} does not exist.`);
     }
 
-    await prisma.processingJob.update({
-      where: { id: storedJob.id },
-      data: {
-        status: "RUNNING",
-        stage: "INGESTION_ACCEPTED",
-        attempt: job.attemptsMade + 1,
-        startedAt: new Date(),
-        finishedAt: null,
-        error: null,
-      },
-    });
+    const startedAt = new Date();
+    await prisma.$transaction([
+      prisma.document.update({
+        where: { id: documentId },
+        data: {
+          status: "PARSING",
+          processingStartedAt: startedAt,
+          processingCompletedAt: null,
+        },
+      }),
+      prisma.processingJob.update({
+        where: { id: storedJob.id },
+        data: {
+          status: "RUNNING",
+          stage: "PARSING",
+          progress: 5,
+          attempt: job.attemptsMade + 1,
+          startedAt,
+          finishedAt: null,
+          error: null,
+        },
+      }),
+    ]);
 
-    // Phase 2 intentionally stops after proving that the worker received a valid persisted document.
+    const result = await parseAndPersistDocument(document.id, document.filePath);
+
     await prisma.processingJob.update({
       where: { id: storedJob.id },
       data: {
         status: "COMPLETED",
-        stage: "INGESTION_ACCEPTED",
-        progress: 100,
+        stage: "PARSING",
+        progress: 20,
         finishedAt: new Date(),
-        metrics: { phase: 2, operation: "ingestion-placeholder" },
+        metrics: { phase: 3, ...result },
       },
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown worker error.";
 
-    await prisma.processingJob
-      .updateMany({
-        where: { documentId, bullJobId },
-        data: {
-          status: "FAILED",
-          stage: "INGESTION_ACCEPTED",
-          error: message,
-          finishedAt: new Date(),
-        },
-      })
+    await prisma
+      .$transaction([
+        prisma.processingIssue.deleteMany({
+          where: { documentId, stage: "PARSING", issueType: "PDF_PARSE_FAILURE" },
+        }),
+        prisma.processingIssue.create({
+          data: {
+            documentId,
+            stage: "PARSING",
+            issueType: "PDF_PARSE_FAILURE",
+            severity: "ERROR",
+            message: "The PDF could not be parsed.",
+            metadata: { error: message },
+          },
+        }),
+        prisma.document.updateMany({
+          where: { id: documentId },
+          data: { status: "FAILED" },
+        }),
+        prisma.processingJob.updateMany({
+          where: { documentId, bullJobId },
+          data: {
+            status: "FAILED",
+            stage: "PARSING",
+            error: message,
+            finishedAt: new Date(),
+          },
+        }),
+      ])
       .catch((updateError: unknown) => {
         logger.error({ err: updateError, documentId, bullJobId }, "Failed to record job failure");
       });
@@ -90,7 +123,7 @@ export function createDocumentWorker(autorun = true): DocumentWorkerHandle {
   );
 
   worker.on("completed", (job) => {
-    logger.info({ documentId: job.data.documentId, jobId: job.id }, "Document job received");
+    logger.info({ documentId: job.data.documentId, jobId: job.id }, "Document parsing completed");
   });
   worker.on("failed", (job, error) => {
     logger.error(

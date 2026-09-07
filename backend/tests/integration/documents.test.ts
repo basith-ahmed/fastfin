@@ -16,6 +16,7 @@ import {
   type DocumentJobData,
 } from "../../src/jobs/queue";
 import { closeDocumentWorker, createDocumentWorker } from "../../src/worker";
+import { createTestPdf } from "../fixtures/pdf";
 
 const testPrefix = "phase-2-integration";
 
@@ -294,8 +295,17 @@ describe("Phase 2 document ingestion", () => {
     expect(await prisma.processingJob.count({ where: { documentId } })).toBe(2);
   });
 
-  it("lets the Phase 2 worker receive and acknowledge a persisted document job", async () => {
-    const upload = await uploadPdf("worker");
+  it("lets the worker parse and chunk a persisted document job", async () => {
+    const upload = await request(app)
+      .post("/api/documents")
+      .attach(
+        "file",
+        createTestPdf([{ lines: [{ text: "Worker parsing fixture", y: 720 }] }]),
+        {
+          filename: `${testPrefix}-worker.pdf`,
+          contentType: "application/pdf",
+        },
+      );
     const documentId = upload.body.data.id as string;
     const handle = createDocumentWorker(false);
     const completion = waitForCompletion(handle.worker, documentId);
@@ -313,13 +323,21 @@ describe("Phase 2 document ingestion", () => {
     });
     expect(processingJob).toMatchObject({
       status: "COMPLETED",
-      stage: "INGESTION_ACCEPTED",
-      progress: 100,
+      stage: "PARSING",
+      progress: 20,
     });
-    expect(processingJob.metrics).toEqual({ phase: 2, operation: "ingestion-placeholder" });
+    expect(processingJob.metrics).toEqual({
+      phase: 3,
+      pageCount: 1,
+      chunkCount: 1,
+      issueCount: 0,
+    });
 
     const document = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
-    expect(document.status).toBe("QUEUED");
+    expect(document.status).toBe("PARSING");
+    expect(document.pageCount).toBe(1);
+    expect(await prisma.documentPage.count({ where: { documentId } })).toBe(1);
+    expect(await prisma.chunk.count({ where: { documentId } })).toBe(1);
   });
 
   it("returns safe errors for invalid and missing document IDs", async () => {
