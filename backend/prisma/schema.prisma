@@ -228,6 +228,7 @@ model Fact {
   @@index([predicateCanonical])
   @@index([valueType])
   @@index([factSignature])
+  @@unique([documentId, factSignature])
   @@map("facts")
 }
 
