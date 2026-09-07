@@ -5,7 +5,7 @@ import { z } from "zod";
 
 dotenv.config({ path: path.resolve(__dirname, "../../../.env"), quiet: true });
 
-const optionalNumber = (schema: z.ZodNumber, defaultValue: number) =>
+const optionalNumber = <T extends number>(schema: z.ZodType<T, number>, defaultValue: T) =>
   z.preprocess(
     (value) => (value === "" || value === undefined ? undefined : value),
     z.coerce.number().default(defaultValue).pipe(schema),
@@ -39,7 +39,7 @@ const envSchema = z.object({
 
   GEMINI_API_KEY: z.string().default(""),
   GEMINI_EMBEDDING_MODEL: z.string().trim().min(1).default("gemini-embedding-2"),
-  EMBEDDING_DIMENSIONS: optionalNumber(z.number().int().positive(), 768),
+  EMBEDDING_DIMENSIONS: optionalNumber(z.literal(768), 768),
 
   LLM_MAX_CONCURRENCY: optionalNumber(z.number().int().positive(), 3),
   LLM_REQUEST_TIMEOUT_MS: optionalNumber(z.number().int().positive(), 60_000),

@@ -1,0 +1,360 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DocumentStatus {
+  UPLOADED
+  QUEUED
+  PARSING
+  EXTRACTING
+  NORMALIZING
+  RESOLVING_ENTITIES
+  EMBEDDING
+  MATCHING
+  REASONING
+  COMPLETED
+  COMPLETED_WITH_ISSUES
+  FAILED
+}
+
+enum EntityType {
+  PERSON
+  ORGANIZATION
+  LOCATION
+  PRODUCT
+  OTHER
+}
+
+enum ValueType {
+  TEXT
+  NUMBER
+  MONEY
+  PERCENTAGE
+  DATE
+  BOOLEAN
+  PERSON
+  ORGANIZATION
+  LOCATION
+  QUANTITY
+  DURATION
+  OTHER
+}
+
+enum ExtractionMethod {
+  LLM
+  DETERMINISTIC
+  HYBRID
+}
+
+enum VerificationMethod {
+  EXACT
+  NORMALIZED
+  FUZZY
+}
+
+enum RelationshipType {
+  CORROBORATES
+  CONTRADICTS
+  RECONCILABLE
+  UNCERTAIN
+}
+
+enum DecisionMethod {
+  RULE
+  LLM
+  HYBRID
+}
+
+enum IssueType {
+  PDF_PARSE_FAILURE
+  EMPTY_PAGE
+  OCR_REQUIRED
+  LLM_REQUEST_FAILURE
+  LLM_INVALID_OUTPUT
+  LOW_FACT_CONFIDENCE
+  EVIDENCE_NOT_FOUND
+  EVIDENCE_AMBIGUOUS
+  NORMALIZATION_FAILURE
+  AMBIGUOUS_ENTITY
+  EMBEDDING_FAILURE
+  RELATIONSHIP_UNCERTAIN
+  RELATIONSHIP_REASONING_FAILURE
+  UNKNOWN
+}
+
+enum IssueSeverity {
+  INFO
+  WARNING
+  ERROR
+}
+
+model Document {
+  id                    String         @id @default(uuid()) @db.Uuid
+  filename              String
+  originalFilename      String         @map("original_filename")
+  mimeType              String         @map("mime_type")
+  sha256                String         @unique
+  filePath              String         @map("file_path")
+  fileSizeBytes         BigInt         @map("file_size_bytes")
+  pageCount             Int?           @map("page_count")
+  status                DocumentStatus @default(UPLOADED)
+  processingStartedAt   DateTime?      @map("processing_started_at") @db.Timestamptz(3)
+  processingCompletedAt DateTime?      @map("processing_completed_at") @db.Timestamptz(3)
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  pages            DocumentPage[]
+  chunks           Chunk[]
+  aliases          EntityAlias[]
+  facts            Fact[]
+  evidence         Evidence[]
+  processingIssues ProcessingIssue[]
+  processingJobs   ProcessingJob[]
+  modelInvocations ModelInvocation[]
+
+  @@map("documents")
+}
+
+model DocumentPage {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  pageNumber Int      @map("page_number")
+  text       String   @db.Text
+  textItems  Json     @map("text_items")
+  width      Float
+  height     Float
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, pageNumber])
+  @@map("document_pages")
+}
+
+model Chunk {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  chunkIndex Int      @map("chunk_index")
+  pageStart  Int      @map("page_start")
+  pageEnd    Int      @map("page_end")
+  text       String   @db.Text
+  tokenCount Int      @map("token_count")
+  sha256     String
+  metadata   Json
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  document         Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  facts            Fact[]
+  processingIssues ProcessingIssue[]
+
+  @@unique([documentId, chunkIndex])
+  @@index([documentId])
+  @@map("chunks")
+}
+
+model Entity {
+  id             String     @id @default(uuid()) @db.Uuid
+  canonicalName  String     @map("canonical_name")
+  normalizedName String     @map("normalized_name")
+  entityType     EntityType @map("entity_type")
+  metadata       Json
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  aliases EntityAlias[]
+  facts   Fact[]
+
+  @@index([normalizedName])
+  @@map("entities")
+}
+
+model EntityAlias {
+  id              String   @id @default(uuid()) @db.Uuid
+  entityId        String   @map("entity_id") @db.Uuid
+  alias           String
+  normalizedAlias String   @map("normalized_alias")
+  documentId      String?  @map("document_id") @db.Uuid
+  confidence      Float
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  entity   Entity    @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([entityId])
+  @@index([normalizedAlias])
+  @@map("entity_aliases")
+}
+
+model Fact {
+  id                 String           @id @default(uuid()) @db.Uuid
+  documentId         String           @map("document_id") @db.Uuid
+  chunkId            String           @map("chunk_id") @db.Uuid
+  entityId           String?          @map("entity_id") @db.Uuid
+  subjectRaw         String           @map("subject_raw")
+  subjectNormalized  String           @map("subject_normalized")
+  predicateRaw       String           @map("predicate_raw")
+  predicateCanonical String           @map("predicate_canonical")
+  valueRaw           String           @map("value_raw")
+  valueType          ValueType        @map("value_type")
+  normalizedText     String?          @map("normalized_text")
+  normalizedNumber   Decimal?         @map("normalized_number") @db.Decimal(38, 12)
+  normalizedDate     DateTime?        @map("normalized_date") @db.Timestamptz(3)
+  unit               String?
+  currency           String?
+  qualifiers         Json
+  normalizedContext  Json             @map("normalized_context")
+  confidence         Float
+  extractionMethod   ExtractionMethod @map("extraction_method")
+  factSignature      String           @map("fact_signature")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  document         Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk            Chunk              @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  entity           Entity?            @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  evidence         Evidence[]
+  embedding        FactEmbedding?
+  leftRelations    FactRelationship[] @relation("LeftFact")
+  rightRelations   FactRelationship[] @relation("RightFact")
+  processingIssues ProcessingIssue[]
+
+  @@index([documentId])
+  @@index([entityId])
+  @@index([predicateCanonical])
+  @@index([valueType])
+  @@index([factSignature])
+  @@map("facts")
+}
+
+model Evidence {
+  id                 String             @id @default(uuid()) @db.Uuid
+  factId             String             @map("fact_id") @db.Uuid
+  documentId         String             @map("document_id") @db.Uuid
+  pageNumber         Int                @map("page_number")
+  quote              String             @db.Text
+  normalizedQuote    String             @map("normalized_quote") @db.Text
+  contextBefore      String             @map("context_before") @db.Text
+  contextAfter       String             @map("context_after") @db.Text
+  startChar          Int?               @map("start_char")
+  endChar            Int?               @map("end_char")
+  boundingBoxes      Json?              @map("bounding_boxes")
+  verificationMethod VerificationMethod @map("verification_method")
+  verificationScore  Float              @map("verification_score")
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  fact     Fact     @relation(fields: [factId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([factId])
+  @@index([documentId])
+  @@index([documentId, pageNumber])
+  @@map("evidence")
+}
+
+model FactEmbedding {
+  factId         String                     @id @map("fact_id") @db.Uuid
+  comparisonText String                     @map("comparison_text") @db.Text
+  embedding      Unsupported("vector(768)")
+  model          String
+  dimensions     Int
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  fact Fact @relation(fields: [factId], references: [id], onDelete: Cascade)
+
+  @@map("fact_embeddings")
+}
+
+model FactRelationship {
+  id                String           @id @default(uuid()) @db.Uuid
+  leftFactId        String           @map("left_fact_id") @db.Uuid
+  rightFactId       String           @map("right_fact_id") @db.Uuid
+  relationshipType  RelationshipType @map("relationship_type")
+  confidence        Float
+  explanation       String           @db.Text
+  contextComparison Json             @map("context_comparison")
+  ruleSignals       Json             @map("rule_signals")
+  decisionMethod    DecisionMethod   @map("decision_method")
+  modelName         String?          @map("model_name")
+  promptVersion     String           @map("prompt_version")
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  leftFact  Fact @relation("LeftFact", fields: [leftFactId], references: [id], onDelete: Cascade)
+  rightFact Fact @relation("RightFact", fields: [rightFactId], references: [id], onDelete: Cascade)
+
+  @@unique([leftFactId, rightFactId])
+  @@index([leftFactId])
+  @@index([rightFactId])
+  @@map("fact_relationships")
+}
+
+model ProcessingIssue {
+  id         String        @id @default(uuid()) @db.Uuid
+  documentId String        @map("document_id") @db.Uuid
+  chunkId    String?       @map("chunk_id") @db.Uuid
+  factId     String?       @map("fact_id") @db.Uuid
+  stage      String
+  issueType  IssueType     @map("issue_type")
+  severity   IssueSeverity
+  message    String        @db.Text
+  metadata   Json
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk    Chunk?   @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+  fact     Fact?    @relation(fields: [factId], references: [id], onDelete: SetNull)
+
+  @@index([documentId])
+  @@index([chunkId])
+  @@index([factId])
+  @@map("processing_issues")
+}
+
+model ProcessingJob {
+  id         String    @id @default(uuid()) @db.Uuid
+  documentId String    @map("document_id") @db.Uuid
+  bullJobId  String?   @map("bull_job_id")
+  stage      String
+  progress   Int       @default(0)
+  attempt    Int       @default(0)
+  status     String
+  error      String?   @db.Text
+  metrics    Json
+  startedAt  DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([bullJobId])
+  @@map("processing_jobs")
+}
+
+model ModelInvocation {
+  id            String   @id @default(uuid()) @db.Uuid
+  provider      String
+  model         String
+  purpose       String
+  documentId    String?  @map("document_id") @db.Uuid
+  inputHash     String   @map("input_hash")
+  promptVersion String   @map("prompt_version")
+  inputTokens   Int?     @map("input_tokens")
+  outputTokens  Int?     @map("output_tokens")
+  latencyMs     Int      @map("latency_ms")
+  success       Boolean
+  error         String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([documentId])
+  @@index([provider, model])
+  @@map("model_invocations")
+}
