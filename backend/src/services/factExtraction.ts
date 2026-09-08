@@ -29,6 +29,13 @@ export type DocumentFactExtractionResult = {
   lowConfidenceCount: number;
 };
 
+export type FactExtractionProgress = {
+  processed: number;
+  total: number;
+  candidatesFound: number;
+  failedChunks: number;
+};
+
 export function factExtractionCacheKey(
   promptVersion: string,
   model: string,
@@ -107,7 +114,7 @@ export async function extractDocumentFactDrafts(
     concurrency?: number;
     minimumConfidence?: number;
     continueOnError?: boolean;
-    onProgress?: (processed: number, total: number) => Promise<void> | void;
+    onProgress?: (progress: FactExtractionProgress) => Promise<void> | void;
   } = {},
 ): Promise<DocumentFactExtractionResult> {
   const concurrency = options.concurrency ?? env.LLM_MAX_CONCURRENCY;
@@ -136,24 +143,37 @@ export async function extractDocumentFactDrafts(
   ].join("\n");
 
   let processed = 0;
+  let candidatesFound = 0;
+  let failedChunkCount = 0;
   let progressUpdates = Promise.resolve();
   const extractedByChunk = await mapWithConcurrency(chunks, concurrency, async (chunk) => {
+    let completedDrafts: FactDraft[] = [];
+    let chunkFailed = false;
     try {
+      completedDrafts = await extractChunk(documentId, documentContext, chunk, provider, cache);
       return {
         chunk,
-        drafts: await extractChunk(documentId, documentContext, chunk, provider, cache),
+        drafts: completedDrafts,
         error: null,
       };
     } catch (error: unknown) {
+      chunkFailed = true;
       if (!options.continueOnError) {
         throw error;
       }
       return { chunk, drafts: [], error };
     } finally {
       processed += 1;
+      candidatesFound += completedDrafts.length;
+      if (chunkFailed) failedChunkCount += 1;
       if (options.onProgress) {
-        const completed = processed;
-        progressUpdates = progressUpdates.then(() => options.onProgress?.(completed, chunks.length));
+        const progress = {
+          processed,
+          total: chunks.length,
+          candidatesFound,
+          failedChunks: failedChunkCount,
+        };
+        progressUpdates = progressUpdates.then(() => options.onProgress?.(progress));
         await progressUpdates;
       }
     }

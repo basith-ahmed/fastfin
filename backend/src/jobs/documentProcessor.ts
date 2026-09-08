@@ -40,6 +40,13 @@ export type DocumentProcessingMetrics = {
   durationMs: number;
 };
 
+type LiveProcessingMetrics = DocumentProcessingMetrics & {
+  activity: string;
+  chunksProcessed: number;
+  chunksTotal: number;
+  failedChunks: number;
+};
+
 export type DocumentProcessorContext = {
   bullJobId: string;
   attempt: number;
@@ -75,6 +82,20 @@ function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
+function liveMetrics(
+  metrics: DocumentProcessingMetrics,
+  activity: string,
+  progress: Partial<Pick<LiveProcessingMetrics, "chunksProcessed" | "chunksTotal" | "failedChunks">> = {},
+): LiveProcessingMetrics {
+  return {
+    ...metrics,
+    activity,
+    chunksProcessed: progress.chunksProcessed ?? 0,
+    chunksTotal: progress.chunksTotal ?? metrics.chunks,
+    failedChunks: progress.failedChunks ?? 0,
+  };
+}
+
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown document processing failure.";
 }
@@ -84,12 +105,14 @@ async function updateStage(
   processingJobId: string,
   status: DocumentStatus,
   progress: number,
+  metrics: DocumentProcessingMetrics,
+  activity: string,
 ): Promise<void> {
   await prisma.$transaction([
     prisma.document.update({ where: { id: documentId }, data: { status } }),
     prisma.processingJob.update({
       where: { id: processingJobId },
-      data: { stage: status, progress },
+      data: { stage: status, progress, metrics: json(liveMetrics(metrics, activity)) },
     }),
   ]);
 }
@@ -211,7 +234,7 @@ export async function processDocument(
           startedAt,
           finishedAt: null,
           error: null,
-          metrics: {},
+          metrics: json(liveMetrics(metrics, "Parsing PDF pages and building text chunks")),
         },
       });
     });
@@ -225,7 +248,14 @@ export async function processDocument(
     }
 
     currentStage = "EXTRACTING";
-    await updateStage(documentId, storedJob.id, currentStage, 20);
+    await updateStage(
+      documentId,
+      storedJob.id,
+      currentStage,
+      20,
+      metrics,
+      "Preparing chunks for fact extraction",
+    );
     const chunks = await prisma.chunk.findMany({
       where: { documentId },
       select: { id: true, chunkIndex: true, sha256: true, text: true },
@@ -240,11 +270,21 @@ export async function processDocument(
       dependencies.extractionCache ?? noCache,
       {
         continueOnError: true,
-        onProgress: async (processed, total) => {
+        onProgress: async ({ processed, total, candidatesFound, failedChunks }) => {
           const progress = 20 + Math.round((35 * processed) / total);
+          metrics.factCandidates = candidatesFound;
           await prisma.processingJob.update({
             where: { id: storedJob.id },
-            data: { progress },
+            data: {
+              progress,
+              metrics: json(
+                liveMetrics(metrics, `Extracted chunk ${processed} of ${total}`, {
+                  chunksProcessed: processed,
+                  chunksTotal: total,
+                  failedChunks,
+                }),
+              ),
+            },
           });
         },
       },
@@ -262,7 +302,14 @@ export async function processDocument(
       extraction.lowConfidenceCount + extraction.eligibleDrafts.length - grounded.length;
 
     currentStage = "NORMALIZING";
-    await updateStage(documentId, storedJob.id, currentStage, 55);
+    await updateStage(
+      documentId,
+      storedJob.id,
+      currentStage,
+      55,
+      metrics,
+      "Verifying evidence and normalizing accepted facts",
+    );
     await prisma.processingIssue.deleteMany({
       where: { documentId, stage: "NORMALIZING", issueType: "NORMALIZATION_FAILURE" },
     });
@@ -276,36 +323,51 @@ export async function processDocument(
         await recordNormalizationFailure(documentId, groundedFact.chunkId, error);
       }
       const progress = 55 + Math.round((10 * (index + 1)) / grounded.length);
-      await prisma.processingJob.update({ where: { id: storedJob.id }, data: { progress } });
+      await prisma.processingJob.update({
+        where: { id: storedJob.id },
+        data: {
+          progress,
+          metrics: json(liveMetrics(metrics, `Normalized fact ${index + 1} of ${grounded.length}`)),
+        },
+      });
     }
 
     currentStage = "RESOLVING_ENTITIES";
-    await updateStage(documentId, storedJob.id, currentStage, 65);
+    await updateStage(documentId, storedJob.id, currentStage, 65, metrics, "Resolving fact subjects to entities");
     const entities = await resolveDocumentFactEntities(documentId);
     metrics.entitiesResolved = entities.resolvedCount;
-    await prisma.processingJob.update({ where: { id: storedJob.id }, data: { progress: 75 } });
+    await prisma.processingJob.update({
+      where: { id: storedJob.id },
+      data: { progress: 75, metrics: json(liveMetrics(metrics, "Entity resolution complete")) },
+    });
 
     currentStage = "EMBEDDING";
-    await updateStage(documentId, storedJob.id, currentStage, 75);
+    await updateStage(documentId, storedJob.id, currentStage, 75, metrics, "Generating fact embeddings");
     const embeddings = await embedDocumentFacts(
       documentId,
       dependencies.embeddingProvider ?? new GeminiEmbeddingProvider(),
     );
     metrics.embeddingsGenerated = embeddings.embeddedCount;
     metrics.embeddingCalls = embeddings.embeddedCount;
-    await prisma.processingJob.update({ where: { id: storedJob.id }, data: { progress: 82 } });
+    await prisma.processingJob.update({
+      where: { id: storedJob.id },
+      data: { progress: 82, metrics: json(liveMetrics(metrics, "Fact embeddings complete")) },
+    });
 
     currentStage = "MATCHING";
-    await updateStage(documentId, storedJob.id, currentStage, 82);
+    await updateStage(documentId, storedJob.id, currentStage, 82, metrics, "Finding cross-document fact candidates");
     currentStage = "REASONING";
-    await updateStage(documentId, storedJob.id, currentStage, 90);
+    await updateStage(documentId, storedJob.id, currentStage, 90, metrics, "Classifying candidate relationships");
     const relationships = await evaluateDocumentRelationships(
       documentId,
       dependencies.relationshipProvider,
     );
     metrics.candidatePairs = relationships.candidatesEvaluated;
     metrics.relationshipsCreated = relationships.relationshipsCreated;
-    await prisma.processingJob.update({ where: { id: storedJob.id }, data: { progress: 98 } });
+    await prisma.processingJob.update({
+      where: { id: storedJob.id },
+      data: { progress: 98, metrics: json(liveMetrics(metrics, "Finalizing processing results")) },
+    });
 
     metrics.issues = await prisma.processingIssue.count({ where: { documentId } });
     const finishedAt = now();

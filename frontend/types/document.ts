@@ -19,9 +19,28 @@ export type ProcessingJob = {
   attempt: number;
   status: string;
   error: string | null;
-  metrics: Record<string, unknown>;
+  metrics: ProcessingMetrics;
   startedAt: string | null;
   finishedAt: string | null;
+};
+
+export type ProcessingMetrics = Record<string, unknown> & {
+  activity?: string;
+  pages?: number;
+  chunks?: number;
+  chunksProcessed?: number;
+  chunksTotal?: number;
+  failedChunks?: number;
+  factCandidates?: number;
+  factsAccepted?: number;
+  factsRejected?: number;
+  entitiesResolved?: number;
+  embeddingsGenerated?: number;
+  candidatePairs?: number;
+  relationshipsCreated?: number;
+  issues?: number;
+  llmCalls?: number;
+  durationMs?: number;
 };
 
 export type DocumentRecord = {
@@ -39,7 +58,7 @@ export type DocumentRecord = {
   updatedAt: string;
   counts?: { facts: number; relationships: number; issues: number };
   latestProcessingJob?: ProcessingJob | null;
-  metrics?: Record<string, unknown>;
+  metrics?: ProcessingMetrics;
 };
 
 export type DocumentMetadata = Pick<

@@ -18,9 +18,13 @@ export function DocumentHeader({ id }: { id: string }) {
 
   const data = document.data!.data;
   const active = !isTerminalDocumentStatus(data.status);
+  const job = data.latestProcessingJob;
+  const live = job?.metrics;
   const duration =
     typeof data.metrics?.durationMs === "number"
       ? `${(data.metrics.durationMs / 1000).toFixed(1)}s`
+      : active && job?.startedAt
+        ? formatElapsed(Date.now() - new Date(job.startedAt).getTime())
       : "—";
 
   return (
@@ -46,12 +50,28 @@ export function DocumentHeader({ id }: { id: string }) {
         <Card className="shadow-none">
           <CardContent>
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span>{humanize(data.latestProcessingJob?.stage ?? data.status)}</span>
+              <span>{humanize(job?.stage ?? data.status)}</span>
               <span className="text-muted-foreground">
-                {data.latestProcessingJob?.progress ?? 0}%
+                {job?.progress ?? 0}%
               </span>
             </div>
-            <Progress value={data.latestProcessingJob?.progress ?? 0} />
+            <Progress value={job?.progress ?? 0} />
+            <p className="mt-3 text-sm font-medium">
+              {live?.activity ?? activityForStage(job?.stage ?? data.status)}
+            </p>
+            <div className="mt-2 grid gap-x-6 gap-y-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+              <LiveMetric
+                label="Chunks"
+                value={
+                  live?.chunksTotal
+                    ? `${live.chunksProcessed ?? 0} of ${live.chunksTotal}`
+                    : "Preparing"
+                }
+              />
+              <LiveMetric label="Candidates" value={live?.factCandidates ?? 0} />
+              <LiveMetric label="Facts accepted" value={live?.factsAccepted ?? 0} />
+              <LiveMetric label="Failed chunks" value={live?.failedChunks ?? 0} />
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -67,6 +87,35 @@ export function DocumentHeader({ id }: { id: string }) {
       ) : null}
     </section>
   );
+}
+
+function LiveMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <span>
+      {label}: <strong className="font-medium text-foreground tabular-nums">{value}</strong>
+    </span>
+  );
+}
+
+function activityForStage(stage: string): string {
+  const activities: Record<string, string> = {
+    QUEUED: "Waiting for an available worker",
+    PARSING: "Parsing PDF pages and building text chunks",
+    EXTRACTING: "Waiting for structured fact extraction",
+    NORMALIZING: "Verifying evidence and normalizing facts",
+    RESOLVING_ENTITIES: "Resolving fact subjects to entities",
+    EMBEDDING: "Generating fact embeddings",
+    MATCHING: "Finding cross-document fact candidates",
+    REASONING: "Classifying candidate relationships",
+  };
+  return activities[stage] ?? humanize(stage);
+}
+
+function formatElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
