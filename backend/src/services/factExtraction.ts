@@ -4,6 +4,7 @@ import { extractNumericalCandidates } from "../ai/numericalCandidateExtractor";
 import { factDraftArraySchema, type FactDraft, type FactExtractionProvider } from "../ai/types";
 import { env } from "../config/env";
 import { prisma } from "../config/database";
+import { hashTextSha256 } from "../utils/hash";
 
 export type ExtractionCache = {
   get(key: string): Promise<string | null>;
@@ -32,17 +33,25 @@ export function factExtractionCacheKey(
   promptVersion: string,
   model: string,
   chunkSha: string,
+  documentContextHash?: string,
 ): string {
-  return `fact-extraction:${promptVersion}:${model}:${chunkSha}`;
+  const contextSuffix = documentContextHash ? `:${documentContextHash}` : "";
+  return `fact-extraction:${promptVersion}:${model}:${chunkSha}${contextSuffix}`;
 }
 
 async function extractChunk(
   documentId: string,
+  documentContext: string,
   chunk: ExtractionChunk,
   provider: FactExtractionProvider,
   cache: ExtractionCache,
 ): Promise<FactDraft[]> {
-  const cacheKey = factExtractionCacheKey(provider.promptVersion, provider.model, chunk.sha256);
+  const cacheKey = factExtractionCacheKey(
+    provider.promptVersion,
+    provider.model,
+    chunk.sha256,
+    hashTextSha256(documentContext),
+  );
   const cached = await cache.get(cacheKey);
   if (cached !== null) {
     try {
@@ -56,6 +65,7 @@ async function extractChunk(
     await provider.extractFacts({
       documentId,
       chunkSha: chunk.sha256,
+      documentContext,
       chunkText: chunk.text,
       numericalCandidates: extractNumericalCandidates(chunk.text),
     }),
@@ -109,11 +119,31 @@ export async function extractDocumentFactDrafts(
     throw new Error("Fact extraction minimum confidence must be between 0 and 1.");
   }
 
+  const document = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: {
+      originalFilename: true,
+      pages: { orderBy: { pageNumber: "asc" }, take: 1, select: { text: true } },
+    },
+  });
+  if (!document) {
+    throw new Error(`Document ${documentId} does not exist.`);
+  }
+  const openingPageText = document.pages[0]?.text.trim().slice(0, 4_000) || "Unavailable";
+  const documentContext = [
+    `Original filename: ${document.originalFilename}`,
+    `Opening page text: ${openingPageText}`,
+  ].join("\n");
+
   let processed = 0;
   let progressUpdates = Promise.resolve();
   const extractedByChunk = await mapWithConcurrency(chunks, concurrency, async (chunk) => {
     try {
-      return { chunk, drafts: await extractChunk(documentId, chunk, provider, cache), error: null };
+      return {
+        chunk,
+        drafts: await extractChunk(documentId, documentContext, chunk, provider, cache),
+        error: null,
+      };
     } catch (error: unknown) {
       if (!options.continueOnError) {
         throw error;

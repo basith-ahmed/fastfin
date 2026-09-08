@@ -61,6 +61,15 @@ describe("Phase 6 subject, predicate, and context normalization", () => {
   });
 
   it.each([
+    ["countries and territories served", "countries_served"],
+    ["pin codes served", "postal_code_reach"],
+    ["Pincode Reach", "postal_code_reach"],
+    ["postal codes served", "postal_code_reach"],
+  ])("canonicalizes equivalent predicate wording %s", (raw, expected) => {
+    expect(normalizePredicate(raw)).toBe(expected);
+  });
+
+  it.each([
     ["FY25", { kind: "FISCAL_YEAR", label: "FY2025" }],
     ["FY2025", { kind: "FISCAL_YEAR", label: "FY2025" }],
     ["Q1 FY2025", { kind: "QUARTER", label: "Q1 FY2025" }],

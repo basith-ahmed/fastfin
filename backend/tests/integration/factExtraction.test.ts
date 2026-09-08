@@ -90,7 +90,7 @@ describe("Phase 4 fact extraction orchestration", () => {
     const extractFacts = jest.fn(async () => [validFactDraft, lowConfidenceDraft]);
     const provider = {
       model: "test-extraction-model",
-      promptVersion: "fact-extraction-v1",
+      promptVersion: "fact-extraction-v2",
       extractFacts,
     };
     const chunk = chunks[0];
@@ -137,7 +137,7 @@ describe("Phase 4 fact extraction orchestration", () => {
     let maximumActiveCalls = 0;
     const provider = {
       model: "test-concurrency-model",
-      promptVersion: "fact-extraction-v1",
+      promptVersion: "fact-extraction-v2",
       extractFacts: async () => {
         activeCalls += 1;
         maximumActiveCalls = Math.max(maximumActiveCalls, activeCalls);
@@ -162,7 +162,7 @@ describe("Phase 4 fact extraction orchestration", () => {
     ]);
     const provider = {
       model: "test-resilient-model",
-      promptVersion: "fact-extraction-v1",
+      promptVersion: "fact-extraction-v2",
       extractFacts: async ({ chunkText }: { chunkText: string }) => {
         if (chunkText.includes("fails")) {
           throw new Error("simulated provider outage");

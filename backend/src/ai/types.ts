@@ -76,6 +76,7 @@ export type NumericalCandidate = {
 export type FactExtractionInput = {
   documentId: string;
   chunkSha: string;
+  documentContext: string;
   chunkText: string;
   numericalCandidates: NumericalCandidate[];
 };

@@ -38,6 +38,7 @@ function responseBody(facts: unknown) {
 const extractionInput: FactExtractionInput = {
   documentId: "6d535d4d-3002-4cce-8a49-b890cab5a75c",
   chunkSha: "a".repeat(64),
+  documentContext: "Original filename: acme-annual-report.pdf\nOpening page text: Acme Corporation",
   chunkText: "[PAGE 2]\n\nAcme Corporation reported revenue of $20 million in 2025.",
   numericalCandidates: [],
 };

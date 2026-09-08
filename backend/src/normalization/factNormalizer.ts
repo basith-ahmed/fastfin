@@ -30,14 +30,24 @@ export function normalizeSubject(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en");
 }
 
+const PREDICATE_ALIASES: Readonly<Record<string, string>> = {
+  countries_and_territories_served: "countries_served",
+  country_and_territory_reach: "countries_served",
+  pin_code_reach: "postal_code_reach",
+  pin_codes_served: "postal_code_reach",
+  pincode_reach: "postal_code_reach",
+  postal_codes_served: "postal_code_reach",
+};
+
 export function normalizePredicate(value: string): string {
-  return value
+  const normalized = value
     .normalize("NFKC")
     .trim()
     .toLocaleLowerCase("en")
     .replace(/[^\p{L}\p{N}]+/gu, "_")
     .replace(/_+/gu, "_")
     .replace(/^_|_$/gu, "");
+  return PREDICATE_ALIASES[normalized] ?? normalized;
 }
 
 function canonicalize(value: unknown): unknown {
