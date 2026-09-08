@@ -6,6 +6,7 @@ import {
 import { z } from "zod";
 
 import { env } from "../config/env";
+import { workerLogger } from "../utils/logger";
 import type { EmbeddingProvider } from "./types";
 
 const MAX_EMBEDDING_TEXT_LENGTH = 8_000;
@@ -61,15 +62,23 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 
   async embed(text: string): Promise<number[]> {
     const validatedText = embeddingTextSchema.parse(text);
-    const response = await this.client.models.embedContent({
-      model: this.model,
-      contents: validatedText,
-      config: {
-        outputDimensionality: this.dimensions,
-        taskType: "RETRIEVAL_DOCUMENT",
-      },
-    });
-    const vector = response.embeddings?.[0]?.values;
-    return validateEmbedding(vector, this.dimensions);
+    try {
+      const response = await this.client.models.embedContent({
+        model: this.model,
+        contents: validatedText,
+        config: {
+          outputDimensionality: this.dimensions,
+          taskType: "RETRIEVAL_DOCUMENT",
+        },
+      });
+      const vector = response.embeddings?.[0]?.values;
+      return validateEmbedding(vector, this.dimensions);
+    } catch (error: unknown) {
+      workerLogger.error(
+        { err: error, model: this.model },
+        `Gemini embedding request failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
   }
 }

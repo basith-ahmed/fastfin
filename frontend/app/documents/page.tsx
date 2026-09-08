@@ -26,41 +26,32 @@ export default function DocumentsPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="Library"
-        title="Documents"
-        description="Track processing and inspect the facts, relationships, and issues produced from each report."
-      />
+    <div className="space-y-8">
+      <PageHeader title="Documents" />
       <Card className="shadow-none">
         <CardContent>
           <UploadZone compact />
         </CardContent>
       </Card>
-      <DocumentFilters
-        search={search}
-        status={status}
-        onSearchChange={setSearch}
-        onStatusChange={(value) => {
-          setStatus(value);
-          setPage(1);
-        }}
-      />
-      <DocumentsTable
-        documents={visibleDocuments}
-        countsById={countsById}
-        loading={documents.isLoading}
-        error={documents.error}
-        retry={() => void documents.refetch()}
-        page={page}
-        totalPages={documents.data?.pagination.totalPages ?? 0}
-        onPageChange={setPage}
-        emptyDescription={
-          search
-            ? "No filename on this page matches your search."
-            : "Upload a PDF to begin building the knowledge layer."
-        }
-      />
+      <section className="space-y-4"><div className="flex items-end justify-between"><h2 className="text-lg font-semibold">All documents</h2><p className="text-sm text-slate-500">{documents.data?.pagination.total ?? 0} total</p></div>
+        <div className="surface-panel overflow-hidden"><div className="border-b border-slate-100 p-4"><DocumentFilters
+          search={search}
+          status={status}
+          onSearchChange={setSearch}
+          onStatusChange={(value) => { setStatus(value); setPage(1); }}
+        /></div>
+        <DocumentsTable
+          documents={visibleDocuments}
+          countsById={countsById}
+          loading={documents.isLoading}
+          error={documents.error}
+          retry={() => void documents.refetch()}
+          page={page}
+          totalPages={documents.data?.pagination.totalPages ?? 0}
+          onPageChange={setPage}
+          emptyDescription={search ? "No filename on this page matches your search." : "No documents uploaded yet."}
+        /></div>
+      </section>
     </div>
   );
 }

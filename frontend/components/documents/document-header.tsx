@@ -1,5 +1,6 @@
 "use client";
 
+import { Clock3, FileCheck2, FileText, Link2, TriangleAlert } from "lucide-react";
 import { ErrorState, LoadingState } from "@/components/common/data-states";
 import { StatusBadge } from "@/components/common/status-badges";
 import { PageHeader } from "@/components/layout/page-header";
@@ -24,30 +25,25 @@ export function DocumentHeader({ id }: { id: string }) {
     typeof data.metrics?.durationMs === "number"
       ? `${(data.metrics.durationMs / 1000).toFixed(1)}s`
       : active && job?.startedAt
-        ? formatElapsed(Date.now() - new Date(job.startedAt).getTime())
+        ? "In progress"
       : "—";
 
   return (
     <section aria-label="Document status" className="space-y-5">
       <PageHeader
-        eyebrow="Document workspace"
         title={data.originalFilename}
         description={`Uploaded ${formatDate(data.createdAt)}`}
         action={<StatusBadge status={data.status} />}
       />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Metric label="Pages" value={data.pageCount ?? "—"} />
-        <Metric label="Facts" value={data.counts?.facts ?? "—"} />
-        <Metric label="Relationships" value={data.counts?.relationships ?? "—"} />
-        <Metric label="Issues" value={data.counts?.issues ?? "—"} />
-        <Metric label="Duration" value={duration} />
-        <Metric
-          label="Progress"
-          value={`${data.latestProcessingJob?.progress ?? (active ? 0 : 100)}%`}
-        />
+      <div className="surface-panel grid divide-y divide-slate-100 overflow-hidden sm:grid-cols-3 sm:divide-x sm:divide-y-0 lg:grid-cols-5">
+        <Metric icon={FileText} label="Pages" value={data.pageCount ?? "—"} />
+        <Metric icon={FileCheck2} label="Verified facts" value={data.counts?.facts ?? "—"} />
+        <Metric icon={Link2} label="Relationships" value={data.counts?.relationships ?? "—"} />
+        <Metric icon={TriangleAlert} label="Issues" value={data.counts?.issues ?? "—"} />
+        <Metric icon={Clock3} label="Processing time" value={duration} />
       </div>
       {active ? (
-        <Card className="shadow-none">
+        <Card className="border-blue-100 bg-blue-50/35 shadow-none">
           <CardContent>
             <div className="mb-2 flex items-center justify-between text-sm">
               <span>{humanize(job?.stage ?? data.status)}</span>
@@ -111,20 +107,8 @@ function activityForStage(stage: string): string {
   return activities[stage] ?? humanize(stage);
 }
 
-function formatElapsed(milliseconds: number): string {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
-}
-
-function Metric({ label, value }: { label: string; value: string | number }) {
+function Metric({ icon: Icon, label, value }: { icon: typeof FileText; label: string; value: string | number }) {
   return (
-    <Card size="sm" className="shadow-none">
-      <CardContent>
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="mt-2 text-lg font-semibold tabular-nums">{value}</p>
-      </CardContent>
-    </Card>
+    <div className="flex items-center gap-3 px-5 py-4"><span className="grid size-9 place-items-center rounded-lg bg-slate-50 text-slate-500"><Icon className="size-4" /></span><div><p className="text-xs text-slate-500">{label}</p><p className="mt-0.5 text-lg font-semibold tracking-tight tabular-nums text-slate-900">{value}</p></div></div>
   );
 }

@@ -26,7 +26,7 @@ export function StatusBadge({ status }: { status: DocumentStatus }) {
         : status === "FAILED"
           ? "border-red-200 bg-red-50 text-red-700"
           : "border-blue-200 bg-blue-50 text-blue-700";
-  return <Badge className={cn("border", tone)}>{statusLabels[status]}</Badge>;
+  return <Badge className={cn("gap-1.5 border px-2.5 py-1 font-semibold", tone)}><span className="size-1.5 rounded-full bg-current opacity-75" />{statusLabels[status]}</Badge>;
 }
 
 const relationshipLabels: Record<RelationshipType, string> = {
@@ -45,7 +45,7 @@ export function RelationshipBadge({ type }: { type: RelationshipType }) {
         : type === "RECONCILABLE"
           ? "border-amber-200 bg-amber-50 text-amber-800"
           : "border-slate-200 bg-slate-100 text-slate-700";
-  return <Badge className={cn("border", tone)}>{relationshipLabels[type]}</Badge>;
+  return <Badge className={cn("gap-1.5 border px-2.5 py-1 font-semibold", tone)}><span className="size-1.5 rounded-full bg-current opacity-75" />{relationshipLabels[type]}</Badge>;
 }
 
 export function SeverityBadge({ severity }: { severity: IssueSeverity }) {

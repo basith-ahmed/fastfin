@@ -12,7 +12,7 @@ import {
   knowledgeRouter,
   relationshipsRouter,
 } from "./routes/knowledge";
-import { logger } from "./utils/logger";
+import { serverLogger } from "./utils/logger";
 
 export function createApp(): express.Express {
   const app = express();
@@ -25,7 +25,7 @@ export function createApp(): express.Express {
     }),
   );
   app.use(express.json());
-  app.use(pinoHttp({ logger }));
+  app.use(pinoHttp({ logger: serverLogger }));
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
@@ -37,7 +37,8 @@ export function createApp(): express.Express {
   app.use("/api/issues", issuesRouter);
   app.use("/api/knowledge", knowledgeRouter);
 
-  app.use((_req, res) => {
+  app.use((req, res) => {
+    serverLogger.warn({ method: req.method, path: req.path }, "Resource not found (404)");
     res.status(404).json({
       error: {
         code: "NOT_FOUND",

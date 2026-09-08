@@ -1,4 +1,5 @@
 import { inputClassName } from "@/components/common/form-controls";
+import { Button } from "@/components/ui/button";
 import { humanize } from "@/lib/formatters";
 import type { DocumentRecord } from "@/types";
 
@@ -25,21 +26,25 @@ export function IssueFilters({
   documentId,
   severity,
   issueType,
+  hasFilters,
   onDocumentChange,
   onSeverityChange,
   onIssueTypeChange,
+  onClear,
 }: {
   documents: DocumentRecord[];
   documentId: string;
   severity: string;
   issueType: string;
+  hasFilters: boolean;
   onDocumentChange: (value: string) => void;
   onSeverityChange: (value: string) => void;
   onIssueTypeChange: (value: string) => void;
+  onClear: () => void;
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
-      <select
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.2fr)_minmax(160px,.7fr)_minmax(220px,1fr)_auto] lg:items-end">
+      <label className="grid gap-1.5"><span className="text-xs font-medium text-slate-600">Document</span><select
         aria-label="Filter by document"
         value={documentId}
         onChange={(event) => onDocumentChange(event.target.value)}
@@ -51,8 +56,8 @@ export function IssueFilters({
             {document.originalFilename}
           </option>
         ))}
-      </select>
-      <select
+      </select></label>
+      <label className="grid gap-1.5"><span className="text-xs font-medium text-slate-600">Severity</span><select
         aria-label="Filter by severity"
         value={severity}
         onChange={(event) => onSeverityChange(event.target.value)}
@@ -62,8 +67,8 @@ export function IssueFilters({
         <option value="INFO">Info</option>
         <option value="WARNING">Warning</option>
         <option value="ERROR">Error</option>
-      </select>
-      <select
+      </select></label>
+      <label className="grid gap-1.5"><span className="text-xs font-medium text-slate-600">Issue type</span><select
         aria-label="Filter by issue type"
         value={issueType}
         onChange={(event) => onIssueTypeChange(event.target.value)}
@@ -74,7 +79,8 @@ export function IssueFilters({
             {value ? humanize(value) : "All issue types"}
           </option>
         ))}
-      </select>
+      </select></label>
+      <Button variant="outline" disabled={!hasFilters} onClick={onClear}>Clear</Button>
     </div>
   );
 }

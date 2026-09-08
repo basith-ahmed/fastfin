@@ -73,9 +73,9 @@ export function DocumentWorkspace({ id }: { id: string }) {
   }
 
   return (
-    <section aria-label="Document inspection tabs">
+    <section aria-label="Document inspection tabs" className="surface-panel overflow-hidden">
       <Tabs value={tab} onValueChange={setTab} className="gap-5">
-        <TabsList className="max-w-full justify-start overflow-x-auto" variant="line">
+        <div className="border-b border-slate-200 bg-slate-50/60 px-5 pt-3"><TabsList className="h-11 max-w-full justify-start gap-5 overflow-x-auto" variant="line">
           <TabsTrigger value="pdf">PDF</TabsTrigger>
           <TabsTrigger value="facts">
             Facts ({facts.data?.pagination.total ?? 0})
@@ -87,8 +87,8 @@ export function DocumentWorkspace({ id }: { id: string }) {
             Issues ({issues.data?.pagination.total ?? 0})
           </TabsTrigger>
           <TabsTrigger value="processing">Processing</TabsTrigger>
-        </TabsList>
-        <TabsContent value="pdf">
+        </TabsList></div>
+        <TabsContent value="pdf" className="px-5 pb-5">
           <PdfViewer
             documentId={id}
             page={page}
@@ -96,7 +96,7 @@ export function DocumentWorkspace({ id }: { id: string }) {
             selectedEvidence={evidence}
           />
         </TabsContent>
-        <TabsContent value="facts">
+        <TabsContent value="facts" className="px-5 pb-5">
           <DocumentFactsPanel
             facts={facts.data?.data ?? []}
             filters={factFilters}
@@ -107,21 +107,21 @@ export function DocumentWorkspace({ id }: { id: string }) {
             onSelectFact={setSelectedFactId}
           />
         </TabsContent>
-        <TabsContent value="relationships">
+        <TabsContent value="relationships" className="px-5 pb-5">
           <DocumentRelationshipsPanel
             relationships={relationships.data?.data ?? []}
             loading={relationships.isLoading}
             error={relationships.error}
           />
         </TabsContent>
-        <TabsContent value="issues">
+        <TabsContent value="issues" className="px-5 pb-5">
           <DocumentIssuesPanel
             issues={issues.data?.data ?? []}
             loading={issues.isLoading}
             error={issues.error}
           />
         </TabsContent>
-        <TabsContent value="processing">
+        <TabsContent value="processing" className="px-5 pb-5">
           <DocumentProcessingPanel document={data} />
         </TabsContent>
       </Tabs>

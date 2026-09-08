@@ -7,6 +7,7 @@ import { z } from "zod";
 import { env } from "../config/env";
 import { prisma } from "../config/database";
 import { hashTextSha256 } from "../utils/hash";
+import { workerLogger } from "../utils/logger";
 import { generativeProviderName, getOpenAIClient } from "./openaiClient";
 import {
   buildRelationshipReasoningInput,
@@ -157,6 +158,10 @@ export class OpenAIRelationshipReasoningProvider implements RelationshipReasonin
 
         const retryable = isTransientError(error) || isStructuredOutputError(error);
         if (!retryable || attempt === MAX_RETRIES) {
+          workerLogger.error(
+            { err: error, model: this.model, attempt: attempt + 1 },
+            `OpenAI relationship reasoning failed permanently: ${errorMessage(error)}`,
+          );
           if (isStructuredOutputError(error)) {
             throw new Error("OpenAI returned invalid structured relationship reasoning output.", {
               cause: error,
@@ -167,7 +172,12 @@ export class OpenAIRelationshipReasoningProvider implements RelationshipReasonin
 
         const exponentialDelay = INITIAL_RETRY_DELAY_MS * 2 ** attempt;
         const jitter = Math.floor(this.random() * INITIAL_RETRY_DELAY_MS);
-        await this.wait(exponentialDelay + jitter);
+        const delay = exponentialDelay + jitter;
+        workerLogger.warn(
+          { model: this.model, attempt: attempt + 1, delayMs: delay },
+          `OpenAI relationship reasoning transient failure (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms: ${errorMessage(error)}`,
+        );
+        await this.wait(delay);
       }
     }
 

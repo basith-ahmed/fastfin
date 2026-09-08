@@ -17,18 +17,12 @@ export function RelationshipHeader({ id }: { id: string }) {
   return (
     <section aria-label="Relationship classification" className="space-y-5">
       <PageHeader
-        eyebrow="Relationship inspector"
         title={`${data.leftFact.predicateCanonical}: cross-document comparison`}
-        description="Review both source claims, their context, and the evidence behind FastFin’s decision."
       />
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4">
-        <RelationshipBadge type={data.classification} />
-        <span className="text-sm">
-          <strong>{formatConfidence(data.confidence)}</strong> confidence
-        </span>
-        <span className="text-sm text-muted-foreground">
-          Decision: {data.decisionMethod}
-        </span>
+      <div className="surface-panel flex flex-wrap items-center gap-x-8 gap-y-4 p-5">
+        <div><p className="section-label mb-2">Classification</p><RelationshipBadge type={data.classification} /></div>
+        <div><p className="section-label">Confidence</p><p className="mt-1 text-xl font-semibold tracking-tight">{formatConfidence(data.confidence)}</p></div>
+        <div><p className="section-label">Decision method</p><p className="mt-1 text-sm font-medium text-slate-700">{data.decisionMethod}</p></div>
       </div>
     </section>
   );

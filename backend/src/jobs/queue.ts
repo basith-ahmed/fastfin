@@ -3,6 +3,7 @@ import type IORedis from "ioredis";
 import { z } from "zod";
 
 import { closeRedisConnection, createRedisConnection } from "../config/redis";
+import { serverLogger } from "../utils/logger";
 
 export const DOCUMENT_QUEUE_NAME = "document-processing";
 export const DOCUMENT_JOB_NAME = "process-document" as const;
@@ -40,7 +41,9 @@ export function getDocumentQueue(): Queue<DocumentJobData, void, typeof DOCUMENT
 export async function enqueueDocument(documentId: string): Promise<DocumentJob> {
   const data = documentJobDataSchema.parse({ documentId });
 
-  return getDocumentQueue().add(DOCUMENT_JOB_NAME, data, { jobId: documentId });
+  const job = await getDocumentQueue().add(DOCUMENT_JOB_NAME, data, { jobId: documentId });
+  serverLogger.info({ documentId, jobId: job.id, queue: DOCUMENT_QUEUE_NAME }, "Enqueued document processing job in BullMQ");
+  return job;
 }
 
 export async function getDocumentJobState(documentId: string): Promise<string | null> {

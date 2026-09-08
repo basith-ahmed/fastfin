@@ -18,6 +18,7 @@ import { resolveDocumentFactEntities } from "../services/entityResolver";
 import { embedDocumentFacts } from "../services/factEmbedding";
 import { parseAndPersistDocument } from "../services/documentParsing";
 import { evaluateDocumentRelationships } from "../services/relationshipReasoner";
+import { workerLogger } from "../utils/logger";
 
 const noCache: ExtractionCache = {
   get: async () => null,
@@ -122,6 +123,11 @@ async function recordNormalizationFailure(
   chunkId: string,
   error: unknown,
 ): Promise<void> {
+  const message = messageFor(error);
+  workerLogger.warn(
+    { err: error, documentId, chunkId },
+    `Normalization failure for chunk ${chunkId}: ${message}`,
+  );
   await prisma.processingIssue.create({
     data: {
       documentId,
@@ -130,7 +136,7 @@ async function recordNormalizationFailure(
       issueType: "NORMALIZATION_FAILURE",
       severity: "WARNING",
       message: "A grounded fact could not be normalized and persisted.",
-      metadata: { error: messageFor(error) },
+      metadata: { error: message },
     },
   });
 }
@@ -149,6 +155,11 @@ async function recordFatalFailure(
   const issueType = stage === "PARSING" && !parseCompleted ? "PDF_PARSE_FAILURE" : "UNKNOWN";
   const finishedAt = now();
   metrics.durationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
+
+  workerLogger.error(
+    { err: error, documentId, stage, durationMs: metrics.durationMs },
+    `Fatal processing failure at stage [${stage}] for document ${documentId}: ${message}`,
+  );
 
   await prisma.$transaction([
     prisma.processingIssue.deleteMany({
@@ -209,6 +220,11 @@ export async function processDocument(
   let currentStage: DocumentStatus = "PARSING";
   let parseCompleted = false;
 
+  workerLogger.info(
+    { documentId, filename: document.originalFilename, attempt: context.attempt },
+    `Starting processing for document "${document.originalFilename}" (${documentId})`,
+  );
+
   try {
     await prisma.$transaction(async (transaction) => {
       await transaction.processingIssue.deleteMany({ where: { documentId } });
@@ -239,10 +255,15 @@ export async function processDocument(
       });
     });
 
+    workerLogger.info({ documentId, stage: "PARSING" }, "Stage [PARSING]: Parsing PDF pages and building text chunks");
     const parsing = await parseAndPersistDocument(documentId, document.filePath);
     parseCompleted = true;
     metrics.pages = parsing.pageCount;
     metrics.chunks = parsing.chunkCount;
+    workerLogger.info(
+      { documentId, pageCount: parsing.pageCount, chunkCount: parsing.chunkCount, issueCount: parsing.issueCount },
+      `Stage [PARSING] completed: ${parsing.pageCount} pages, ${parsing.chunkCount} chunks (${parsing.issueCount} warnings)`,
+    );
     if (parsing.chunkCount === 0) {
       throw new Error("The PDF contains no chunks with usable text.");
     }
@@ -263,6 +284,10 @@ export async function processDocument(
     });
     const extractionProvider =
       dependencies.extractionProvider ?? new OpenAIFactExtractionProvider();
+    workerLogger.info(
+      { documentId, chunkCount: chunks.length, model: extractionProvider.model },
+      `Stage [EXTRACTING]: Extracting fact candidates across ${chunks.length} chunks using ${extractionProvider.model}`,
+    );
     const extraction = await extractDocumentFactDrafts(
       documentId,
       chunks,
@@ -273,6 +298,10 @@ export async function processDocument(
         onProgress: async ({ processed, total, candidatesFound, failedChunks }) => {
           const progress = 20 + Math.round((35 * processed) / total);
           metrics.factCandidates = candidatesFound;
+          workerLogger.info(
+            { documentId, chunk: `${processed}/${total}`, candidatesFound, failedChunks },
+            `Fact extraction progress: chunk ${processed}/${total} (candidates found: ${candidatesFound}${failedChunks > 0 ? `, failed: ${failedChunks}` : ""})`,
+          );
           await prisma.processingJob.update({
             where: { id: storedJob.id },
             data: {
@@ -292,7 +321,19 @@ export async function processDocument(
     metrics.factCandidates =
       extraction.eligibleDrafts.length + extraction.lowConfidenceCount;
     metrics.llmCalls = chunks.length;
+    workerLogger.info(
+      {
+        documentId,
+        candidates: metrics.factCandidates,
+        lowConfidence: extraction.lowConfidenceCount,
+      },
+      `Stage [EXTRACTING] completed: found ${metrics.factCandidates} candidates (${extraction.lowConfidenceCount} low confidence)`,
+    );
 
+    workerLogger.info(
+      { documentId, eligibleCount: extraction.eligibleDrafts.length },
+      `Stage [NORMALIZING]: Verifying evidence for ${extraction.eligibleDrafts.length} candidates and persisting facts`,
+    );
     const grounded = await verifyDocumentFactDrafts(
       documentId,
       extraction.eligibleDrafts,
@@ -300,6 +341,10 @@ export async function processDocument(
     );
     metrics.factsRejected =
       extraction.lowConfidenceCount + extraction.eligibleDrafts.length - grounded.length;
+    workerLogger.info(
+      { documentId, grounded: grounded.length, rejected: metrics.factsRejected },
+      `Evidence verification completed: ${grounded.length} facts grounded, ${metrics.factsRejected} rejected`,
+    );
 
     currentStage = "NORMALIZING";
     await updateStage(
@@ -331,24 +376,53 @@ export async function processDocument(
         },
       });
     }
+    workerLogger.info(
+      { documentId, accepted: metrics.factsAccepted, duplicate: metrics.factsRejected },
+      `Stage [NORMALIZING] completed: ${metrics.factsAccepted} facts persisted to database`,
+    );
 
     currentStage = "RESOLVING_ENTITIES";
+    workerLogger.info({ documentId }, "Stage [RESOLVING_ENTITIES]: Resolving fact subjects to entities");
     await updateStage(documentId, storedJob.id, currentStage, 65, metrics, "Resolving fact subjects to entities");
     const entities = await resolveDocumentFactEntities(documentId);
     metrics.entitiesResolved = entities.resolvedCount;
+    workerLogger.info(
+      {
+        documentId,
+        resolvedCount: entities.resolvedCount,
+        createdCount: entities.createdCount,
+        matchedCount: entities.matchedCount,
+        issueCount: entities.issueCount,
+      },
+      `Stage [RESOLVING_ENTITIES] completed: ${entities.resolvedCount} resolved (${entities.createdCount} created, ${entities.matchedCount} matched, ${entities.issueCount} ambiguous issues)`,
+    );
     await prisma.processingJob.update({
       where: { id: storedJob.id },
       data: { progress: 75, metrics: json(liveMetrics(metrics, "Entity resolution complete")) },
     });
 
     currentStage = "EMBEDDING";
+    const embeddingProvider = dependencies.embeddingProvider ?? new GeminiEmbeddingProvider();
+    workerLogger.info(
+      { documentId, model: embeddingProvider.model },
+      `Stage [EMBEDDING]: Generating vector embeddings using ${embeddingProvider.model}`,
+    );
     await updateStage(documentId, storedJob.id, currentStage, 75, metrics, "Generating fact embeddings");
     const embeddings = await embedDocumentFacts(
       documentId,
-      dependencies.embeddingProvider ?? new GeminiEmbeddingProvider(),
+      embeddingProvider,
     );
     metrics.embeddingsGenerated = embeddings.embeddedCount;
     metrics.embeddingCalls = embeddings.embeddedCount;
+    workerLogger.info(
+      {
+        documentId,
+        embeddedCount: embeddings.embeddedCount,
+        cachedCount: embeddings.cachedCount,
+        issueCount: embeddings.issueCount,
+      },
+      `Stage [EMBEDDING] completed: ${embeddings.embeddedCount} embedded, ${embeddings.cachedCount} cached (${embeddings.issueCount} failures)`,
+    );
     await prisma.processingJob.update({
       where: { id: storedJob.id },
       data: { progress: 82, metrics: json(liveMetrics(metrics, "Fact embeddings complete")) },
@@ -357,6 +431,7 @@ export async function processDocument(
     currentStage = "MATCHING";
     await updateStage(documentId, storedJob.id, currentStage, 82, metrics, "Finding cross-document fact candidates");
     currentStage = "REASONING";
+    workerLogger.info({ documentId }, "Stage [REASONING]: Evaluating cross-document candidate relationships");
     await updateStage(documentId, storedJob.id, currentStage, 90, metrics, "Classifying candidate relationships");
     const relationships = await evaluateDocumentRelationships(
       documentId,
@@ -364,6 +439,15 @@ export async function processDocument(
     );
     metrics.candidatePairs = relationships.candidatesEvaluated;
     metrics.relationshipsCreated = relationships.relationshipsCreated;
+    workerLogger.info(
+      {
+        documentId,
+        candidatesEvaluated: relationships.candidatesEvaluated,
+        relationshipsCreated: relationships.relationshipsCreated,
+        byType: relationships.byType,
+      },
+      `Stage [REASONING] completed: evaluated ${relationships.candidatesEvaluated} candidate pairs, created ${relationships.relationshipsCreated} relationships (${JSON.stringify(relationships.byType)})`,
+    );
     await prisma.processingJob.update({
       where: { id: storedJob.id },
       data: { progress: 98, metrics: json(liveMetrics(metrics, "Finalizing processing results")) },
@@ -390,6 +474,17 @@ export async function processDocument(
         },
       }),
     ]);
+    workerLogger.info(
+      {
+        documentId,
+        status: completionStatus,
+        durationMs: metrics.durationMs,
+        issues: metrics.issues,
+        factsAccepted: metrics.factsAccepted,
+        relationshipsCreated: metrics.relationshipsCreated,
+      },
+      `Document processing finished with status "${completionStatus}" in ${metrics.durationMs}ms (${metrics.factsAccepted} facts, ${metrics.relationshipsCreated} relationships, ${metrics.issues} issues)`,
+    );
     return metrics;
   } catch (error: unknown) {
     await recordFatalFailure(

@@ -10,22 +10,14 @@ export default function Home() {
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Overview"
-        title="Evidence-grounded financial intelligence"
-        description="Upload reports, inspect extracted facts, and understand how claims agree or differ across documents."
-        action={
-          <Button asChild>
-            <a href="#upload">
-              <FileText /> Upload PDF
-            </a>
-          </Button>
-        }
+        title="Overview"
+        action={<Button asChild><a href="#upload"><FileText /> Upload PDF</a></Button>}
       />
-      <SummaryMetrics />
-      <section
-        aria-label="Recent documents and PDF upload"
-        className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,.75fr)]"
-      >
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold tracking-tight">Summary</h2>
+        <SummaryMetrics />
+      </section>
+      <section aria-label="Recent documents and PDF upload" className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,.6fr)]">
         <RecentDocuments />
         <UploadPanel />
       </section>

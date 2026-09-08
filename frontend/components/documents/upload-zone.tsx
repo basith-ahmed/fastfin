@@ -76,12 +76,12 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
         onDragLeave={() => setDragging(false)}
         onDrop={drop}
         className={cn(
-          "flex cursor-pointer items-center rounded-xl border border-dashed transition-colors",
-          compact ? "gap-4 p-5" : "min-h-52 flex-col justify-center px-6 py-10 text-center",
-          dragging ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:bg-slate-100",
+          "flex cursor-pointer items-center rounded-2xl border border-dashed transition-all",
+          compact ? "gap-4 p-5" : "min-h-56 flex-col justify-center px-6 py-10 text-center",
+          dragging ? "scale-[1.01] border-blue-500 bg-blue-100/60" : "border-blue-200 bg-white hover:border-blue-400 hover:bg-blue-50/50",
         )}
       >
-        <span className={cn("rounded-xl bg-white p-3 text-slate-700 shadow-sm", !compact && "mb-4")}>
+        <span className={cn("rounded-xl border border-blue-100 bg-blue-50 p-3 text-blue-700 shadow-sm", !compact && "mb-4")}>
           {mutation.isPending ? <LoaderCircle className="size-6 animate-spin" /> : <UploadCloud className="size-6" />}
         </span>
         <div className={cn(compact && "flex-1")}>

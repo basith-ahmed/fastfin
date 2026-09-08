@@ -1,3 +1,5 @@
+import { ChevronRight } from "lucide-react";
+
 import { EmptyState, ErrorState, LoadingState } from "@/components/common/data-states";
 import { PaginationControls } from "@/components/common/pagination-controls";
 import { SeverityBadge } from "@/components/common/status-badges";
@@ -43,29 +45,30 @@ export function IssuesTable({
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead>Severity</TableHead>
+            <TableHead>Issue</TableHead>
             <TableHead>Document</TableHead>
             <TableHead>Stage</TableHead>
-            <TableHead>Issue type</TableHead>
-            <TableHead>Severity</TableHead>
-            <TableHead>Message</TableHead>
             <TableHead>Created</TableHead>
+            <TableHead><span className="sr-only">Open</span></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {issues.map((issue) => (
-            <TableRow key={issue.id} className="cursor-pointer" onClick={() => onSelect(issue.id)}>
-              <TableCell className="max-w-52 truncate font-medium">
-                {issue.document.originalFilename}
-              </TableCell>
-              <TableCell>{humanize(issue.stage)}</TableCell>
-              <TableCell>{humanize(issue.issueType)}</TableCell>
+            <TableRow key={issue.id} className="group cursor-pointer" onClick={() => onSelect(issue.id)}>
               <TableCell>
                 <SeverityBadge severity={issue.severity} />
               </TableCell>
-              <TableCell className="max-w-md whitespace-normal">{issue.message}</TableCell>
-              <TableCell className="text-muted-foreground">
+              <TableCell className="max-w-lg whitespace-normal">
+                <p className="font-medium text-slate-900">{humanize(issue.issueType)}</p>
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{issue.message}</p>
+              </TableCell>
+              <TableCell className="max-w-56 truncate font-medium text-slate-700">{issue.document.originalFilename}</TableCell>
+              <TableCell className="text-slate-600">{humanize(issue.stage)}</TableCell>
+              <TableCell className="text-slate-500">
                 {formatDate(issue.createdAt)}
               </TableCell>
+              <TableCell className="w-12"><ChevronRight className="size-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600" /></TableCell>
             </TableRow>
           ))}
         </TableBody>

@@ -5,6 +5,7 @@ import { factDraftArraySchema, type FactDraft, type FactExtractionProvider } fro
 import { env } from "../config/env";
 import { prisma } from "../config/database";
 import { hashTextSha256 } from "../utils/hash";
+import { workerLogger } from "../utils/logger";
 
 export type ExtractionCache = {
   get(key: string): Promise<string | null>;
@@ -158,6 +159,11 @@ export async function extractDocumentFactDrafts(
       };
     } catch (error: unknown) {
       chunkFailed = true;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      workerLogger.warn(
+        { err: error, chunkIndex: chunk.chunkIndex, chunkId: chunk.id, documentId },
+        `Fact extraction failed for chunk ${chunk.chunkIndex}: ${errMsg}`,
+      );
       if (!options.continueOnError) {
         throw error;
       }

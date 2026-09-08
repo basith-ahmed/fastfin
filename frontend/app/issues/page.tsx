@@ -28,33 +28,37 @@ export default function IssuesPage() {
     setter(value);
     setPage(1);
   };
+  const hasFilters = Boolean(documentId || severity || issueType);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="Pipeline transparency"
-        title="Processing issues"
-        description="Inspect extraction, grounding, normalization, embedding, and reasoning failures without hiding incomplete work."
-      />
-      <IssueFilters
-        documents={documents.data?.data ?? []}
-        documentId={documentId}
-        severity={severity}
-        issueType={issueType}
-        onDocumentChange={(value) => updateFilter(setDocumentId, value)}
-        onSeverityChange={(value) => updateFilter(setSeverity, value)}
-        onIssueTypeChange={(value) => updateFilter(setIssueType, value)}
-      />
-      <IssuesTable
-        issues={issues.data?.data ?? []}
-        loading={issues.isLoading}
-        error={issues.error}
-        retry={() => void issues.refetch()}
-        page={page}
-        totalPages={issues.data?.pagination.totalPages ?? 0}
-        onPageChange={setPage}
-        onSelect={setSelectedId}
-      />
+    <div className="space-y-8">
+      <PageHeader title="Processing issues" />
+      <section className="space-y-4">
+        <div className="surface-panel p-5">
+          <IssueFilters
+            documents={documents.data?.data ?? []}
+            documentId={documentId}
+            severity={severity}
+            issueType={issueType}
+            hasFilters={hasFilters}
+            onDocumentChange={(value) => updateFilter(setDocumentId, value)}
+            onSeverityChange={(value) => updateFilter(setSeverity, value)}
+            onIssueTypeChange={(value) => updateFilter(setIssueType, value)}
+            onClear={() => { setDocumentId(""); setSeverity(""); setIssueType(""); setPage(1); }}
+          />
+        </div>
+        <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Issues</h2><p className="text-sm tabular-nums text-slate-500">{issues.data?.pagination.total ?? 0} results</p></div>
+        <IssuesTable
+          issues={issues.data?.data ?? []}
+          loading={issues.isLoading}
+          error={issues.error}
+          retry={() => void issues.refetch()}
+          page={page}
+          totalPages={issues.data?.pagination.totalPages ?? 0}
+          onPageChange={setPage}
+          onSelect={setSelectedId}
+        />
+      </section>
       <IssueDetailSheet
         issue={detail.data?.data}
         loading={detail.isLoading}

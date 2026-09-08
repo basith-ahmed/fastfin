@@ -14,9 +14,9 @@ export function RecentDocuments() {
 
   return (
     <Card className="shadow-none">
-      <CardHeader className="border-b">
+      <CardHeader className="border-b border-slate-100 pb-4">
         <div className="flex items-center justify-between">
-          <CardTitle>Recent documents</CardTitle>
+          <CardTitle className="text-base">Recent documents</CardTitle>
           <Button variant="ghost" size="sm" asChild>
             <Link href="/documents">View all</Link>
           </Button>
@@ -35,10 +35,10 @@ export function RecentDocuments() {
               <Link
                 key={document.id}
                 href={`/documents/${document.id}`}
-                className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/40"
+                className="group flex items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-blue-50/40"
               >
                 <div className="min-w-0">
-                  <p className="truncate font-medium">{document.originalFilename}</p>
+                  <p className="truncate font-medium text-slate-800 group-hover:text-blue-800">{document.originalFilename}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {formatDate(document.createdAt)}
                   </p>

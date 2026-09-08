@@ -14,7 +14,7 @@ import {
   type DocumentJob,
   type DocumentJobData,
 } from "./jobs/queue";
-import { logger } from "./utils/logger";
+import { workerLogger } from "./utils/logger";
 
 export type DocumentWorkerHandle = {
   worker: Worker<DocumentJobData, void, typeof DOCUMENT_JOB_NAME>;
@@ -27,6 +27,10 @@ export async function processDocumentJob(
 ): Promise<void> {
   const { documentId } = documentJobDataSchema.parse(job.data);
   const bullJobId = job.id ?? documentId;
+  workerLogger.info(
+    { documentId, jobId: bullJobId, attempt: job.attemptsMade + 1 },
+    "Processing document job picked up from queue",
+  );
   await processDocument(
     documentId,
     { bullJobId, attempt: job.attemptsMade + 1 },
@@ -50,16 +54,19 @@ export function createDocumentWorker(
   );
 
   worker.on("completed", (job) => {
-    logger.info({ documentId: job.data.documentId, jobId: job.id }, "Document processing completed");
+    workerLogger.info(
+      { documentId: job.data.documentId, jobId: job.id },
+      "Document processing job completed successfully",
+    );
   });
   worker.on("failed", (job, error) => {
-    logger.error(
+    workerLogger.error(
       { err: error, documentId: job?.data.documentId, jobId: job?.id },
-      "Document job failed",
+      `Document processing job failed: ${error?.message || "Unknown error"}`,
     );
   });
   worker.on("error", (error) => {
-    logger.error({ err: error }, "Document worker error");
+    workerLogger.error({ err: error }, "Document worker internal error");
   });
 
   return { worker, connection };
@@ -74,7 +81,7 @@ async function main(): Promise<void> {
   await connectDatabase();
   const handle = createDocumentWorker();
   await handle.worker.waitUntilReady();
-  logger.info({ queue: DOCUMENT_QUEUE_NAME }, "FastFin document worker listening");
+  workerLogger.info({ queue: DOCUMENT_QUEUE_NAME }, `FastFin document worker listening on queue "${DOCUMENT_QUEUE_NAME}"`);
 
   let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals) => {
@@ -83,13 +90,14 @@ async function main(): Promise<void> {
     }
 
     shuttingDown = true;
-    logger.info({ signal }, "Shutting down document worker");
+    workerLogger.info({ signal }, "Shutting down document worker");
 
     try {
       await closeDocumentWorker(handle);
       await disconnectDatabase();
+      workerLogger.info("Document worker stopped successfully");
     } catch (error: unknown) {
-      logger.error({ err: error }, "Document worker shutdown failed");
+      workerLogger.error({ err: error }, "Document worker shutdown failed");
       process.exitCode = 1;
     }
   };
@@ -100,7 +108,7 @@ async function main(): Promise<void> {
 
 if (require.main === module) {
   void main().catch((error: unknown) => {
-    logger.fatal({ err: error }, "FastFin document worker failed to start");
+    workerLogger.fatal({ err: error }, "FastFin document worker failed to start");
     process.exitCode = 1;
   });
 }

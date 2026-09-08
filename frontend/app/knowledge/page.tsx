@@ -1,8 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
+import { LoadingState } from "@/components/common/data-states";
 import { PaginationControls } from "@/components/common/pagination-controls";
 import { SummaryMetrics } from "@/components/dashboard/summary-metrics";
 import {
@@ -19,8 +20,13 @@ import { useRelationships } from "@/hooks/use-relationships";
 import type { RelationshipType } from "@/types";
 
 export default function KnowledgePage() {
+  return <Suspense fallback={<LoadingState label="Loading knowledge" />}><KnowledgeContent /></Suspense>;
+}
+
+function KnowledgeContent() {
   const router = useRouter();
-  const [tab, setTab] = useState("facts");
+  const searchParams = useSearchParams();
+  const tab = searchParams.get("view") === "relationships" ? "relationships" : "facts";
   const [selectedFactId, setSelectedFactId] = useState<string | null>(null);
   const [factPage, setFactPage] = useState(1);
   const [factFilters, setFactFilters] = useState<FactFilters>({
@@ -38,23 +44,25 @@ export default function KnowledgePage() {
     pageSize: 20,
   });
 
+  function changeTab(value: string) {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("view", value === "relationships" ? "relationships" : "facts");
+    router.replace(`/knowledge?${nextParams.toString()}`, { scroll: false });
+  }
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="Knowledge layer"
-        title="Cross-document relationships"
-        description="Compare claims across reports and inspect the evidence and context behind every classification."
-      />
-      <SummaryMetrics />
-      <Tabs value={tab} onValueChange={setTab} className="gap-5">
-        <TabsList variant="line">
+    <div className="space-y-8">
+      <PageHeader title="Knowledge" />
+      <div className="space-y-4"><h2 className="text-lg font-semibold">Summary</h2><SummaryMetrics /></div>
+      <Tabs value={tab} onValueChange={changeTab} className="gap-5">
+        <div className="flex flex-col gap-3 border-b border-slate-200 sm:flex-row sm:items-end sm:justify-between"><h2 className="text-lg font-semibold">Records</h2><TabsList variant="line" className="h-11 gap-5">
           <TabsTrigger value="facts">
             Facts ({facts.data?.pagination.total ?? 0})
           </TabsTrigger>
           <TabsTrigger value="relationships">
             Relationships ({relationships.data?.pagination.total ?? 0})
           </TabsTrigger>
-        </TabsList>
+        </TabsList></div>
         <TabsContent value="facts">
           <DocumentFactsPanel
             facts={facts.data?.data ?? []}

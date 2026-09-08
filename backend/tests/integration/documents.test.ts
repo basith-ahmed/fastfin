@@ -207,6 +207,7 @@ describe("Phase 2 document ingestion", () => {
   });
 
   it("lists documents with bounded pagination and optional status filtering", async () => {
+    const existingQueued = await prisma.document.count({ where: { status: "QUEUED" } });
     await uploadPdf("list-a");
     await uploadPdf("list-b");
     await uploadPdf("list-c");
@@ -216,7 +217,13 @@ describe("Phase 2 document ingestion", () => {
     expect(response.status).toBe(200);
     expect(response.body.data).toHaveLength(1);
     expect(response.body.data[0].status).toBe("QUEUED");
-    expect(response.body.pagination).toEqual({ page: 2, pageSize: 1, total: 3, totalPages: 3 });
+    const expectedTotal = existingQueued + 3;
+    expect(response.body.pagination).toEqual({
+      page: 2,
+      pageSize: 1,
+      total: expectedTotal,
+      totalPages: expectedTotal,
+    });
 
     const invalid = await request(app).get("/api/documents?pageSize=101");
     expect(invalid.status).toBe(400);

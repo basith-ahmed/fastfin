@@ -38,7 +38,7 @@ export function DocumentFactsPanel({
 }) {
   return (
     <>
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-900/[0.02] sm:grid-cols-2 xl:grid-cols-4">
         <input
           className={inputClassName}
           placeholder="Search subject or value"

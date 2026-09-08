@@ -13,9 +13,9 @@ export default async function RelationshipPage({
   const { id } = await params;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <Button variant="ghost" size="sm" asChild>
-        <Link href="/knowledge">
+        <Link href="/knowledge?view=relationships">
           <ArrowLeft /> Back to knowledge
         </Link>
       </Button>

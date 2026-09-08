@@ -17,7 +17,7 @@ import {
 } from "../jobs/queue";
 import { AppError } from "../middleware/errorHandler";
 import { hashFileSha256 } from "../utils/hash";
-import { logger } from "../utils/logger";
+import { serverLogger } from "../utils/logger";
 
 const pdfMagicBytes = Buffer.from("%PDF-");
 const activeJobStates = new Set(["active", "waiting", "delayed", "prioritized", "waiting-children"]);
@@ -103,13 +103,18 @@ async function createQueuedDocument(file: Express.Multer.File, sha256: string): 
 
     try {
       await enqueueDocument(document.id);
-      return await prisma.document.update({
+      const queued = await prisma.document.update({
         where: { id: document.id },
         data: { status: "QUEUED" },
       });
+      serverLogger.info(
+        { documentId: queued.id, filename: queued.originalFilename, fileSizeBytes: Number(queued.fileSizeBytes) },
+        "New PDF uploaded and enqueued for processing",
+      );
+      return queued;
     } catch (error: unknown) {
       await prisma.document.delete({ where: { id: document.id } });
-      logger.error({ err: error, documentId: document.id }, "Failed to queue uploaded document");
+      serverLogger.error({ err: error, documentId: document.id }, "Failed to queue uploaded document");
       throw new AppError(503, "QUEUE_UNAVAILABLE", "The document could not be queued.");
     }
   } catch (error: unknown) {
@@ -122,6 +127,11 @@ export async function uploadDocument(file: Express.Multer.File | undefined): Pro
   if (!file) {
     throw new AppError(400, "PDF_REQUIRED", "A single PDF file is required.");
   }
+
+  serverLogger.info(
+    { filename: file.originalname, fileSizeBytes: file.size, mimetype: file.mimetype },
+    "Received PDF upload request",
+  );
 
   try {
     if (file.mimetype !== "application/pdf") {
@@ -136,6 +146,10 @@ export async function uploadDocument(file: Express.Multer.File | undefined): Pro
     const duplicate = await prisma.document.findUnique({ where: { sha256 } });
 
     if (duplicate) {
+      serverLogger.info(
+        { documentId: duplicate.id, filename: duplicate.originalFilename, sha256 },
+        "Duplicate PDF uploaded, returning existing document",
+      );
       return { document: duplicate, duplicate: true };
     }
 
@@ -146,6 +160,10 @@ export async function uploadDocument(file: Express.Multer.File | undefined): Pro
         const racedDuplicate = await prisma.document.findUnique({ where: { sha256 } });
 
         if (racedDuplicate) {
+          serverLogger.info(
+            { documentId: racedDuplicate.id, filename: racedDuplicate.originalFilename, sha256 },
+            "Concurrent duplicate PDF uploaded, returning existing document",
+          );
           return { document: racedDuplicate, duplicate: true };
         }
       }
@@ -266,6 +284,7 @@ export async function deleteDocument(documentId: string): Promise<void> {
 
   await removeFileIfPresent(document.filePath);
   await prisma.document.delete({ where: { id: document.id } });
+  serverLogger.info({ documentId: document.id, filename: document.originalFilename }, "Document deleted successfully");
 }
 
 export async function reprocessDocument(documentId: string): Promise<Document> {
@@ -274,6 +293,7 @@ export async function reprocessDocument(documentId: string): Promise<Document> {
   const jobState = await getDocumentJobState(document.id);
 
   if (jobState && activeJobStates.has(jobState)) {
+    serverLogger.warn({ documentId, jobState }, "Reprocess rejected: document is currently processing");
     throw new AppError(409, "DOCUMENT_PROCESSING", "The document already has active processing.");
   }
 
@@ -318,6 +338,7 @@ export async function reprocessDocument(documentId: string): Promise<Document> {
 
   try {
     await enqueueDocument(documentId);
+    serverLogger.info({ documentId, filename: document.originalFilename }, "Document reprocess requested and enqueued");
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown queue failure.";
     await prisma.$transaction([
@@ -327,7 +348,7 @@ export async function reprocessDocument(documentId: string): Promise<Document> {
       }),
       prisma.document.update({ where: { id: documentId }, data: { status: "FAILED" } }),
     ]);
-    logger.error({ err: error, documentId }, "Failed to requeue document");
+    serverLogger.error({ err: error, documentId }, "Failed to requeue document");
     throw new AppError(503, "QUEUE_UNAVAILABLE", "The document could not be queued.");
   }
 

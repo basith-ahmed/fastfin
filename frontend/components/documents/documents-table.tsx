@@ -45,7 +45,7 @@ export function DocumentsTable({
   }
 
   return (
-    <Card className="gap-0 py-0 shadow-none">
+    <Card className="gap-0 rounded-none border-0 py-0 shadow-none">
       <Table>
         <TableHeader>
           <TableRow>
