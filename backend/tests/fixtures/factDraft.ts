@@ -2,7 +2,10 @@ export const validFactDraft = {
   subject: { text: "Acme Corporation", type: "ORGANIZATION" as const },
   predicate: { raw: "reported revenue", canonical: "revenue" },
   value: { raw: "$20 million", type: "MONEY" as const },
-  qualifiers: { audited: true, sourceNote: null },
+  qualifiers: [
+    { name: "audited", value: true },
+    { name: "sourceNote", value: null },
+  ],
   context: {
     time: "2025",
     geography: null,

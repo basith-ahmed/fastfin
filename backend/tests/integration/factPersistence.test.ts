@@ -72,7 +72,10 @@ describe("Phase 6 transactional fact persistence", () => {
       draft: {
         ...validFactDraft,
         evidence: [{ pageNumber: 1, quote: evidence.claimedQuote }],
-        qualifiers: { accounting_standard: "IFRS", membership_class: "Series A" },
+        qualifiers: [
+          { name: "accounting_standard", value: "IFRS" },
+          { name: "membership_class", value: "Series A" },
+        ],
       },
       verifiedEvidence: [evidence],
     };

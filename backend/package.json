@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "worker": "tsx src/worker.ts",
     "worker:start": "node dist/worker.js",
+    "reset": "sh ./scripts/reset-local.sh",
     "test": "prisma migrate deploy && node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
     "test:coverage": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage --runInBand",

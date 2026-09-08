@@ -1,13 +1,13 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import OpenAI, { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
-import { zodTextFormat } from "openai/helpers/zod";
+import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
 import { env } from "../config/env";
 import { prisma } from "../config/database";
 import { hashTextSha256 } from "../utils/hash";
-import { getOpenAIClient } from "./openaiClient";
+import { generativeProviderName, getOpenAIClient } from "./openaiClient";
 import {
   buildRelationshipReasoningInput,
   RELATIONSHIP_REASONING_INSTRUCTIONS,
@@ -80,6 +80,10 @@ function isTransientError(error: unknown): boolean {
   return false;
 }
 
+function isStructuredOutputError(error: unknown): boolean {
+  return error instanceof SyntaxError || error instanceof z.ZodError;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown OpenAI request failure.";
 }
@@ -113,31 +117,35 @@ export class OpenAIRelationshipReasoningProvider implements RelationshipReasonin
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
       const startedAt = Date.now();
       try {
-        const response = await this.client.responses.parse({
+        const response = await this.client.chat.completions.parse({
           model: this.model,
-          instructions: RELATIONSHIP_REASONING_INSTRUCTIONS,
-          input: userInput,
-          text: {
-            format: zodTextFormat(relationshipReasoningResponseSchema, "relationship_reasoning"),
-          },
-          store: false,
+          messages: [
+            { role: "system", content: RELATIONSHIP_REASONING_INSTRUCTIONS },
+            { role: "user", content: userInput },
+          ],
+          response_format: zodResponseFormat(
+            relationshipReasoningResponseSchema,
+            "relationship_reasoning",
+          ),
         });
-        const parsed = relationshipReasoningResponseSchema.parse(response.output_parsed);
+        const parsed = relationshipReasoningResponseSchema.parse(
+          response.choices[0]?.message.parsed,
+        );
         await this.recordInvocation({
-          provider: "openai",
+          provider: generativeProviderName,
           model: this.model,
           purpose: "RELATIONSHIP_REASONING",
           inputHash,
           promptVersion: this.promptVersion,
-          inputTokens: response.usage?.input_tokens,
-          outputTokens: response.usage?.output_tokens,
+          inputTokens: response.usage?.prompt_tokens,
+          outputTokens: response.usage?.completion_tokens,
           latencyMs: Date.now() - startedAt,
           success: true,
         });
         return parsed;
       } catch (error: unknown) {
         await this.recordInvocation({
-          provider: "openai",
+          provider: generativeProviderName,
           model: this.model,
           purpose: "RELATIONSHIP_REASONING",
           inputHash,
@@ -147,8 +155,9 @@ export class OpenAIRelationshipReasoningProvider implements RelationshipReasonin
           error: errorMessage(error),
         });
 
-        if (!isTransientError(error) || attempt === MAX_RETRIES) {
-          if (error instanceof z.ZodError) {
+        const retryable = isTransientError(error) || isStructuredOutputError(error);
+        if (!retryable || attempt === MAX_RETRIES) {
+          if (isStructuredOutputError(error)) {
             throw new Error("OpenAI returned invalid structured relationship reasoning output.", {
               cause: error,
             });

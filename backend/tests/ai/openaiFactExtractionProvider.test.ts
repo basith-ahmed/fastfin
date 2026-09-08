@@ -6,31 +6,22 @@ import { validFactDraft } from "../fixtures/factDraft";
 
 function responseBody(facts: unknown) {
   return {
-    id: "resp_test",
-    object: "response",
-    created_at: 1,
-    status: "completed",
-    output: [
+    id: "chatcmpl_test",
+    object: "chat.completion",
+    created: 1,
+    model: "test-model",
+    choices: [
       {
-        id: "msg_test",
-        type: "message",
-        status: "completed",
-        role: "assistant",
-        content: [
-          {
-            type: "output_text",
-            text: JSON.stringify({ facts }),
-            annotations: [],
-          },
-        ],
+        index: 0,
+        message: { role: "assistant", content: JSON.stringify({ facts }) },
+        finish_reason: "stop",
+        logprobs: null,
       },
     ],
     usage: {
-      input_tokens: 25,
-      output_tokens: 40,
+      prompt_tokens: 25,
+      completion_tokens: 40,
       total_tokens: 65,
-      input_tokens_details: { cached_tokens: 0 },
-      output_tokens_details: { reasoning_tokens: 0 },
     },
   };
 }
@@ -44,13 +35,15 @@ const extractionInput: FactExtractionInput = {
 };
 
 describe("OpenAI fact extraction provider", () => {
-  it("uses the real Responses API structured parser and returns multiple facts", async () => {
-    const fetchMock = jest.fn(async () =>
-      new Response(JSON.stringify(responseBody([validFactDraft, validFactDraft])), {
+  it("uses the Chat Completions structured parser and returns multiple facts", async () => {
+    const fetchMock = jest.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { response_format?: unknown };
+      expect(JSON.stringify(request.response_format)).not.toContain("propertyNames");
+      return new Response(JSON.stringify(responseBody([validFactDraft, validFactDraft])), {
         status: 200,
         headers: { "content-type": "application/json" },
-      }),
-    );
+      });
+    });
     const records: Array<{ success: boolean; inputTokens?: number; outputTokens?: number }> = [];
     const provider = new OpenAIFactExtractionProvider({
       client: new OpenAI({ apiKey: "test", maxRetries: 0, fetch: fetchMock }),
@@ -103,7 +96,34 @@ describe("OpenAI fact extraction provider", () => {
     expect(delays).toEqual([250]);
   });
 
-  it("does not retry permanent API or malformed structured-output failures", async () => {
+  it("retries a non-JSON response and accepts a later valid structured response", async () => {
+    const responses = [
+      responseBody("**This is Markdown, not structured output.**"),
+      responseBody([validFactDraft]),
+    ];
+    responses[0]!.choices[0]!.message.content = "**This is Markdown, not JSON.**";
+    const fetchMock = jest.fn(async () =>
+      new Response(JSON.stringify(responses.shift()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const delays: number[] = [];
+    const provider = new OpenAIFactExtractionProvider({
+      client: new OpenAI({ apiKey: "test", maxRetries: 0, fetch: fetchMock }),
+      recordInvocation: async () => undefined,
+      wait: async (milliseconds) => {
+        delays.push(milliseconds);
+      },
+      random: () => 0,
+    });
+
+    await expect(provider.extractFacts(extractionInput)).resolves.toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(delays).toEqual([250]);
+  });
+
+  it("does not retry permanent API failures but retries malformed structured output", async () => {
     const permanentFetch = jest.fn(async () =>
       new Response(JSON.stringify({ error: { message: "bad request", type: "invalid_request" } }), {
         status: 400,
@@ -131,6 +151,6 @@ describe("OpenAI fact extraction provider", () => {
       "invalid structured fact extraction output",
     );
     expect(permanentFetch).toHaveBeenCalledTimes(1);
-    expect(malformedFetch).toHaveBeenCalledTimes(1);
+    expect(malformedFetch).toHaveBeenCalledTimes(3);
   });
 });

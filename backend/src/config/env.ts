@@ -33,8 +33,8 @@ const envSchema = z.object({
   MAX_UPLOAD_MB: optionalNumber(z.number().positive(), 50),
 
   OPENAI_API_KEY: z.string().default(""),
-  OPENAI_BASE_URL: z.string().trim().min(1).default("https://openrouter.ai/api/v1"),
-  LLM_MODEL: z.string().trim().min(1).default("openai/gpt-4o-mini"),
+  OPENAI_BASE_URL: z.url("OPENAI_BASE_URL must be a valid OpenAI-compatible API URL."),
+  LLM_MODEL: z.string().trim().min(1, "LLM_MODEL is required."),
 
   GEMINI_API_KEY: z.string().default(""),
   EMBEDDING_MODEL: z.string().trim().min(1).default("gemini-embedding-2"),

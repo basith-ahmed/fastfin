@@ -5,31 +5,22 @@ import type { RelationshipReasoningInput } from "../../src/ai/types";
 
 function responseBody(output: unknown) {
   return {
-    id: "resp_relationship_test",
-    object: "response",
-    created_at: 1,
-    status: "completed",
-    output: [
+    id: "chatcmpl_relationship_test",
+    object: "chat.completion",
+    created: 1,
+    model: "test-model",
+    choices: [
       {
-        id: "msg_relationship_test",
-        type: "message",
-        status: "completed",
-        role: "assistant",
-        content: [
-          {
-            type: "output_text",
-            text: JSON.stringify(output),
-            annotations: [],
-          },
-        ],
+        index: 0,
+        message: { role: "assistant", content: JSON.stringify(output) },
+        finish_reason: "stop",
+        logprobs: null,
       },
     ],
     usage: {
-      input_tokens: 30,
-      output_tokens: 20,
+      prompt_tokens: 30,
+      completion_tokens: 20,
       total_tokens: 50,
-      input_tokens_details: { cached_tokens: 0 },
-      output_tokens_details: { reasoning_tokens: 0 },
     },
   };
 }
@@ -63,9 +54,9 @@ describe("OpenAI relationship reasoning provider", () => {
   it("uses an API-compatible strict schema and parses structured output", async () => {
     const fetchMock = jest.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body)) as {
-        text: { format: { schema: { required: string[] } } };
+        response_format: { json_schema: { schema: { required: string[] } } };
       };
-      expect(request.text.format.schema.required).toContain("decisiveContext");
+      expect(request.response_format.json_schema.schema.required).toContain("decisiveContext");
 
       return new Response(
         JSON.stringify(
@@ -104,7 +95,7 @@ describe("OpenAI relationship reasoning provider", () => {
     ]);
   });
 
-  it("rejects malformed structured output without retrying", async () => {
+  it("retries and then rejects malformed structured output", async () => {
     const fetchMock = jest.fn(async () =>
       new Response(
         JSON.stringify(
@@ -125,6 +116,6 @@ describe("OpenAI relationship reasoning provider", () => {
     await expect(provider.reasonRelationship(reasoningInput)).rejects.toThrow(
       "invalid structured relationship reasoning output",
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

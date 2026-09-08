@@ -29,7 +29,7 @@ function draft(input: {
     subject: { text: `${testPrefix} Acme Corp`, type: "ORGANIZATION" },
     predicate: { raw: input.predicate, canonical: input.predicate },
     value: { raw: input.value, type: input.valueType },
-    qualifiers: {},
+    qualifiers: [],
     context: {
       time: input.period,
       geography: null,

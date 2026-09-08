@@ -27,7 +27,12 @@ const nonBlankString = z.string().min(1).refine((value) => value.trim().length >
   message: "Value must not contain only whitespace.",
 });
 
-const qualifierValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+export const qualifierValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
+export const factQualifierSchema = z.object({
+  name: nonBlankString,
+  value: qualifierValueSchema,
+});
 
 export const factDraftSchema = z.object({
   subject: z.object({
@@ -42,7 +47,9 @@ export const factDraftSchema = z.object({
     raw: nonBlankString,
     type: factValueTypeSchema,
   }),
-  qualifiers: z.record(z.string(), qualifierValueSchema),
+  // An entry array produces portable JSON Schema. Dynamic object keys generate
+  // `propertyNames`, which is not supported by every OpenAI-compatible endpoint.
+  qualifiers: z.array(factQualifierSchema),
   context: z.object({
     time: z.string().nullable(),
     geography: z.string().nullable(),
@@ -66,6 +73,7 @@ export const factDraftArraySchema = z.array(factDraftSchema);
 export const factExtractionResponseSchema = z.object({ facts: factDraftArraySchema });
 
 export type FactDraft = z.infer<typeof factDraftSchema>;
+export type FactQualifierValue = z.infer<typeof qualifierValueSchema>;
 
 export type NumericalCandidate = {
   raw: string;

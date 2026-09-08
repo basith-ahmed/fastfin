@@ -11,8 +11,8 @@ describe("environment validation", () => {
       MAX_UPLOAD_MB: "25",
       EMBEDDING_DIMENSIONS: "768",
       FACT_MIN_CONFIDENCE: "0.75",
-      OPENAI_BASE_URL: "https://openrouter.ai/api/v1",
-      LLM_MODEL: "openai/gpt-4o-mini",
+      OPENAI_BASE_URL: "https://llm-gateway.example/openai/v1",
+      LLM_MODEL: "vendor/development-model",
       EMBEDDING_MODEL: "gemini-embedding-2",
     });
 
@@ -22,10 +22,20 @@ describe("environment validation", () => {
       MAX_UPLOAD_MB: 25,
       EMBEDDING_DIMENSIONS: 768,
       FACT_MIN_CONFIDENCE: 0.75,
-      OPENAI_BASE_URL: "https://openrouter.ai/api/v1",
-      LLM_MODEL: "openai/gpt-4o-mini",
+      OPENAI_BASE_URL: "https://llm-gateway.example/openai/v1",
+      LLM_MODEL: "vendor/development-model",
       EMBEDDING_MODEL: "gemini-embedding-2",
     });
+  });
+
+  it("preserves arbitrary OpenAI-compatible endpoint and model values", () => {
+    const result = parseEnv({
+      OPENAI_BASE_URL: "https://another-provider.example/v1",
+      LLM_MODEL: "experimental/model-name",
+    });
+
+    expect(result.OPENAI_BASE_URL).toBe("https://another-provider.example/v1");
+    expect(result.LLM_MODEL).toBe("experimental/model-name");
   });
 
   it("rejects malformed values with a useful message", () => {

@@ -1,4 +1,4 @@
-import type { FactDraft } from "../ai/types";
+import type { FactDraft, FactQualifierValue } from "../ai/types";
 import type { GroundedFactDraft, VerifiedEvidence } from "../services/evidenceVerifier";
 import { hashTextSha256 } from "../utils/hash";
 import { normalizeContext, type NormalizedContext } from "./contextNormalizer";
@@ -19,7 +19,7 @@ export type NormalizedFactDraft = {
   normalizedDate: Date | null;
   unit: string | null;
   currency: string | null;
-  qualifiers: FactDraft["qualifiers"];
+  qualifiers: Record<string, FactQualifierValue>;
   normalizedContext: NormalizedContext;
   confidence: number;
   factSignature: string;
@@ -48,6 +48,16 @@ export function normalizePredicate(value: string): string {
     .replace(/_+/gu, "_")
     .replace(/^_|_$/gu, "");
   return PREDICATE_ALIASES[normalized] ?? normalized;
+}
+
+function normalizeQualifiers(
+  qualifiers: FactDraft["qualifiers"],
+): Record<string, FactQualifierValue> {
+  const normalized: Record<string, FactQualifierValue> = {};
+  for (const qualifier of qualifiers) {
+    normalized[qualifier.name.normalize("NFKC").trim()] = qualifier.value;
+  }
+  return normalized;
 }
 
 function canonicalize(value: unknown): unknown {
@@ -133,7 +143,7 @@ export function normalizeGroundedFact(
     valueRaw: grounded.draft.value.raw,
     valueType: grounded.draft.value.type,
     ...value,
-    qualifiers: { ...grounded.draft.qualifiers },
+    qualifiers: normalizeQualifiers(grounded.draft.qualifiers),
     normalizedContext,
     confidence: grounded.draft.confidence,
     factSignature,

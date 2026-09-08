@@ -4,6 +4,9 @@ export const FACT_EXTRACTION_PROMPT_VERSION = "fact-extraction-v2";
 
 export const FACT_EXTRACTION_INSTRUCTIONS = `You are extracting atomic claims from document text.
 
+Return only the structured JSON response required by the supplied response schema. Never return Markdown,
+commentary, headings, code fences, or explanatory prose outside that response.
+
 Use only the supplied document content. Do not use external knowledge. Do not infer a claim that is not asserted.
 Extract useful numerical and semantic facts. A fact must be atomic. Every fact must contain supporting evidence.
 Evidence must be copied verbatim or nearly verbatim from the provided source, including its [PAGE N] page number.

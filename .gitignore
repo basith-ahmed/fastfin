@@ -21,3 +21,5 @@ backend/storage/temp/*
 
 *.md
 !README.md
+
+backend/storage/starter/*

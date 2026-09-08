@@ -109,7 +109,10 @@ describe("Phase 6 normalized facts and signatures", () => {
       ...validFactDraft,
       predicate: { raw: "Annual Revenue", canonical: "annual-revenue" },
       value: { raw: "$1.2M", type: "MONEY" },
-      qualifiers: { accounting_standard: "IFRS", membership_class: "Series A" },
+      qualifiers: [
+        { name: "accounting_standard", value: "IFRS" },
+        { name: "membership_class", value: "Series A" },
+      ],
     };
 
     const normalized = normalizeGroundedFact("document-1", grounded(draft));
@@ -120,7 +123,7 @@ describe("Phase 6 normalized facts and signatures", () => {
       predicateCanonical: "annual_revenue",
       valueRaw: "$1.2M",
       normalizedNumber: 1_200_000,
-      qualifiers: draft.qualifiers,
+      qualifiers: { accounting_standard: "IFRS", membership_class: "Series A" },
     });
     expect(draft.value.raw).toBe("$1.2M");
   });

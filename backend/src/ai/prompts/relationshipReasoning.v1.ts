@@ -4,6 +4,9 @@ export const RELATIONSHIP_REASONING_PROMPT_VERSION = "relationship-reasoning-v1"
 
 export const RELATIONSHIP_REASONING_INSTRUCTIONS = `You are evaluating the relationship between two financial facts extracted from different documents.
 
+Return only the structured JSON response required by the supplied response schema. Never return Markdown,
+commentary, headings, code fences, or explanatory prose outside that response.
+
 Given Fact A and Fact B, classify their relationship as one of:
 
 CORROBORATES — Both facts support materially the same proposition. Values, entity, period, and scope are consistent.
