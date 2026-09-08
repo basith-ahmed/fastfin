@@ -70,6 +70,19 @@ function getTimeKind(context: Prisma.JsonValue): string | null {
   return null;
 }
 
+function getQualifierPeriod(qualifiers: Prisma.JsonValue): string | null {
+  if (!isRecord(qualifiers)) return null;
+  for (const key of ["reportingPeriod", "reporting_period", "period"]) {
+    const value = qualifiers[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function getFactPeriod(fact: Fact): string | null {
+  return getTimeLabel(fact.normalizedContext) ?? getQualifierPeriod(fact.qualifiers);
+}
+
 /**
  * Canonical ordering ensures leftFactId < rightFactId to satisfy
  * the DB CHECK constraint `fact_relationships_ordered_pair_check`.
@@ -85,7 +98,7 @@ function buildFactInput(fact: Fact, quote: string | null): RelationshipFactInput
     value: fact.valueRaw,
     unit: fact.unit,
     currency: fact.currency,
-    period: getTimeLabel(fact.normalizedContext),
+    period: getFactPeriod(fact),
     scope: getContextField(fact.normalizedContext, "scope"),
     segment: getContextField(fact.normalizedContext, "segment"),
     quote,
@@ -106,10 +119,44 @@ export function isCompatiblePair(factA: Fact, factB: Fact): boolean {
 
   if (!sameEntity) return false;
 
-  // Check predicate compatibility
-  if (factA.predicateCanonical !== factB.predicateCanonical) return false;
+  // Different value kinds are not comparable even when their predicate words overlap
+  // (for example, EBITDA amount versus EBITDA margin).
+  if (factA.valueType !== factB.valueType) return false;
+
+  if (!arePredicatesCompatible(factA.predicateCanonical, factB.predicateCanonical)) return false;
 
   return true;
+}
+
+const PREDICATE_CONTEXT_MODIFIERS = new Set([
+  "annual",
+  "quarterly",
+  "reported",
+  "profit",
+  "loss",
+  "positive",
+  "negative",
+]);
+
+function predicateConcept(predicate: string): string {
+  return predicate
+    .split("_")
+    .filter(
+      (token) =>
+        token.length > 0 &&
+        !PREDICATE_CONTEXT_MODIFIERS.has(token) &&
+        !/^fy\d{2,4}$/u.test(token) &&
+        !/^q[1-4]$/u.test(token) &&
+        !/^\d{4}$/u.test(token),
+    )
+    .join("_");
+}
+
+export function arePredicatesCompatible(left: string, right: string): boolean {
+  if (left === right) return true;
+  const leftConcept = predicateConcept(left);
+  const rightConcept = predicateConcept(right);
+  return leftConcept.length > 0 && leftConcept === rightConcept;
 }
 
 // ── Fast Deterministic Corroboration Path ────────────────────────────
@@ -129,16 +176,16 @@ export function tryDeterministicCorroboration(
     factA.subjectNormalized === factB.subjectNormalized;
   if (!entityMatch) return null;
 
-  // Predicate must match
-  if (factA.predicateCanonical !== factB.predicateCanonical) return null;
+  if (factA.valueType !== factB.valueType) return null;
+  if (!arePredicatesCompatible(factA.predicateCanonical, factB.predicateCanonical)) return null;
 
   // Period must match (same kind + label)
   const timeKindA = getTimeKind(factA.normalizedContext);
   const timeKindB = getTimeKind(factB.normalizedContext);
   if (timeKindA !== timeKindB) return null;
 
-  const timeLabelA = getTimeLabel(factA.normalizedContext);
-  const timeLabelB = getTimeLabel(factB.normalizedContext);
+  const timeLabelA = getFactPeriod(factA);
+  const timeLabelB = getFactPeriod(factB);
   if (timeLabelA !== timeLabelB) return null;
 
   // Scope must match
@@ -148,7 +195,13 @@ export function tryDeterministicCorroboration(
 
   // Value must match: compare normalizedNumber (with currency/unit) or normalizedText
   if (factA.normalizedNumber !== null && factB.normalizedNumber !== null) {
-    if (!factA.normalizedNumber.equals(factB.normalizedNumber)) return null;
+    const left = Math.abs(factA.normalizedNumber.toNumber());
+    const right = Math.abs(factB.normalizedNumber.toNumber());
+    const scale = Math.max(left, right);
+    const relativeDifference = scale === 0 ? 0 : Math.abs(left - right) / scale;
+    // Financial reports commonly round the same value at different scales
+    // (for example, millions versus crores). Keep this tolerance deliberately tight.
+    if (relativeDifference > 0.005) return null;
     if (factA.currency !== factB.currency) return null;
     if (factA.unit !== factB.unit) return null;
   } else if (factA.normalizedText !== null && factB.normalizedText !== null) {
@@ -165,7 +218,7 @@ export function tryDeterministicCorroboration(
     classification: "CORROBORATES",
     confidence: 1.0,
     explanation:
-      "Both documents state identical normalized values under the same entity, period, and scope.",
+      "Both documents state equivalent normalized values, allowing only a small reporting-rounding difference, under the same entity, period, and scope.",
     decisionMethod: "RULE",
     skipped: false,
   };

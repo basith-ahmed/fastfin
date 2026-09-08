@@ -17,6 +17,13 @@ export function useFact(id: string | null) {
   });
 }
 
+export function useFacts(filters: Filters = {}) {
+  return useQuery({
+    queryKey: ["facts", filters],
+    queryFn: () => api.facts(filters),
+  });
+}
+
 export function useDocumentFacts(
   documentId: string,
   filters: Filters = {},

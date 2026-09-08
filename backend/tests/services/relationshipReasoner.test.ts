@@ -9,6 +9,7 @@ import type {
 } from "../../src/ai/types";
 import { connectDatabase, disconnectDatabase, prisma } from "../../src/config/database";
 import {
+  arePredicatesCompatible,
   evaluateFactPair,
   isCompatiblePair,
   tryDeterministicCorroboration,
@@ -93,6 +94,7 @@ async function createFact(input: {
   currency?: string | null;
   unit?: string | null;
   context?: Prisma.InputJsonValue;
+  qualifiers?: Prisma.InputJsonValue;
 }): Promise<Fact> {
   const subject = input.subject ?? `${testPrefix} Acme`;
   return prisma.fact.create({
@@ -110,7 +112,7 @@ async function createFact(input: {
       normalizedNumber: input.normalizedNumber ?? 12_000_000,
       currency: input.currency ?? "USD",
       unit: input.unit ?? "USD",
-      qualifiers: {},
+      qualifiers: input.qualifiers ?? {},
       normalizedContext:
         input.context ?? {
           time: { kind: "FISCAL_YEAR", label: "FY2025", start: null, end: null },
@@ -169,6 +171,15 @@ describe("Phase 9 — Cross-Document Relationship Reasoning", () => {
   afterAll(disconnectDatabase);
 
   describe("isCompatiblePair", () => {
+    it.each([
+      ["ebitda_profit_fy24", "ebitda", true],
+      ["annual_revenue", "revenue", true],
+      ["adjusted_ebitda", "ebitda", false],
+      ["revenue", "employee_count", false],
+    ])("compares predicate concepts %s and %s", (left, right, expected) => {
+      expect(arePredicatesCompatible(left, right)).toBe(expected);
+    });
+
     it("returns true for facts with matching entity and predicate", async () => {
       const entity = await createEntity(`${testPrefix} CompatCo`);
       const docA = await createDocument("compat-a");
@@ -240,6 +251,26 @@ describe("Phase 9 — Cross-Document Relationship Reasoning", () => {
       });
       expect(isCompatiblePair(factA, factB)).toBe(false);
     });
+
+    it("accepts the same metric with period/status modifiers", async () => {
+      const entity = await createEntity(`${testPrefix} ModifierCo`);
+      const docA = await createDocument("modifier-a");
+      const docB = await createDocument("modifier-b");
+      const factA = await createFact({
+        documentId: docA.id,
+        chunkId: docA.chunks[0]!.id,
+        entityId: entity.id,
+        predicate: "ebitda_profit_fy24",
+      });
+      const factB = await createFact({
+        documentId: docB.id,
+        chunkId: docB.chunks[0]!.id,
+        entityId: entity.id,
+        predicate: "ebitda",
+      });
+
+      expect(isCompatiblePair(factA, factB)).toBe(true);
+    });
   });
 
   describe("tryDeterministicCorroboration", () => {
@@ -297,6 +328,43 @@ describe("Phase 9 — Cross-Document Relationship Reasoning", () => {
       });
 
       expect(tryDeterministicCorroboration(factA, factB)).toBeNull();
+    });
+
+    it("corroborates tightly rounded values with equivalent predicate modifiers", async () => {
+      const entity = await createEntity(`${testPrefix} RoundedCo`);
+      const docA = await createDocument("rounded-a");
+      const docB = await createDocument("rounded-b");
+      const unknownTime = { time: { kind: "UNKNOWN", label: null }, scope: null };
+      const factA = await createFact({
+        documentId: docA.id,
+        chunkId: docA.chunks[0]!.id,
+        entityId: entity.id,
+        predicate: "ebitda_loss_fy23",
+        valueRaw: "₹4,516 million",
+        normalizedNumber: 4_516_000_000,
+        currency: "INR",
+        unit: "INR",
+        context: unknownTime,
+        qualifiers: { reportingPeriod: "FY23" },
+      });
+      const factB = await createFact({
+        documentId: docB.id,
+        chunkId: docB.chunks[0]!.id,
+        entityId: entity.id,
+        predicate: "ebitda",
+        valueRaw: "₹452 Cr",
+        normalizedNumber: 4_520_000_000,
+        currency: "INR",
+        unit: "INR",
+        context: unknownTime,
+        qualifiers: { reporting_period: "FY23" },
+      });
+
+      expect(tryDeterministicCorroboration(factA, factB)).toMatchObject({
+        classification: "CORROBORATES",
+        confidence: 1,
+        decisionMethod: "RULE",
+      });
     });
 
     it("returns null when periods differ", async () => {
