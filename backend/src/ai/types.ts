@@ -91,3 +91,60 @@ export interface EmbeddingProvider {
   readonly dimensions: number;
   embed(text: string): Promise<number[]>;
 }
+
+// ── Relationship Reasoning ──────────────────────────────────────────
+
+export const relationshipClassificationSchema = z.enum([
+  "CORROBORATES",
+  "CONTRADICTS",
+  "RECONCILABLE",
+  "UNCERTAIN",
+]);
+
+export type RelationshipClassification = z.infer<typeof relationshipClassificationSchema>;
+
+export const decisiveContextEffectSchema = z.enum([
+  "SUPPORTS_MATCH",
+  "SUPPORTS_CONTRADICTION",
+  "EXPLAINS_DIFFERENCE",
+  "INSUFFICIENT",
+]);
+
+export const decisiveContextEntrySchema = z.object({
+  dimension: z.string(),
+  factA: z.string().nullable(),
+  factB: z.string().nullable(),
+  effect: decisiveContextEffectSchema,
+});
+
+export const relationshipReasoningResponseSchema = z.object({
+  classification: relationshipClassificationSchema,
+  confidence: z.number().min(0).max(1),
+  explanation: z.string(),
+  decisiveContext: z.array(decisiveContextEntrySchema).optional(),
+});
+
+export type RelationshipReasoningResult = z.infer<typeof relationshipReasoningResponseSchema>;
+
+export type RelationshipFactInput = {
+  entity: string;
+  predicate: string;
+  value: string;
+  unit: string | null;
+  currency: string | null;
+  period: string | null;
+  scope: string | null;
+  segment: string | null;
+  quote: string | null;
+};
+
+export type RelationshipReasoningInput = {
+  factA: RelationshipFactInput;
+  factB: RelationshipFactInput;
+};
+
+export interface RelationshipReasoningProvider {
+  readonly model: string;
+  readonly promptVersion: string;
+  reasonRelationship(input: RelationshipReasoningInput): Promise<RelationshipReasoningResult>;
+}
