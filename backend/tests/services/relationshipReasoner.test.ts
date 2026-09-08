@@ -25,6 +25,7 @@ class FakeRelationshipProvider implements RelationshipReasoningProvider {
     classification: "UNCERTAIN",
     confidence: 0.8,
     explanation: "Default fake result.",
+    decisiveContext: [],
   };
 
   setResult(result: Partial<RelationshipReasoningResult>): void {
@@ -32,7 +33,7 @@ class FakeRelationshipProvider implements RelationshipReasoningProvider {
       classification: result.classification ?? "UNCERTAIN",
       confidence: result.confidence ?? 0.8,
       explanation: result.explanation ?? "Fake explanation.",
-      decisiveContext: result.decisiveContext,
+      decisiveContext: result.decisiveContext ?? [],
     };
   }
 
@@ -398,6 +399,17 @@ describe("Phase 9 — Cross-Document Relationship Reasoning", () => {
       expect(result.classification).toBe("CONTRADICTS");
       expect(result.decisionMethod).toBe("LLM");
       expect(result.skipped).toBe(false);
+
+      const persisted = await prisma.factRelationship.findUnique({
+        where: {
+          leftFactId_rightFactId: {
+            leftFactId: result.leftFactId,
+            rightFactId: result.rightFactId,
+          },
+        },
+      });
+      expect(persisted?.modelName).toBe(fakeProvider.model);
+      expect(persisted?.promptVersion).toBe(fakeProvider.promptVersion);
     });
 
     it("uses LLM for reconciliation (H1 vs FY)", async () => {
@@ -556,6 +568,82 @@ describe("Phase 9 — Cross-Document Relationship Reasoning", () => {
       expect(persisted).toBeNull();
     });
 
+    it("skips facts from the same document", async () => {
+      const entity = await createEntity(`${testPrefix} SameDocumentCo`);
+      const document = await createDocument("same-document");
+      const factA = await createFact({
+        documentId: document.id,
+        chunkId: document.chunks[0]!.id,
+        entityId: entity.id,
+        subject: `${testPrefix} SameDocumentCo`,
+        normalizedNumber: 12_000_000,
+      });
+      const factB = await createFact({
+        documentId: document.id,
+        chunkId: document.chunks[0]!.id,
+        entityId: entity.id,
+        subject: `${testPrefix} SameDocumentCo`,
+        normalizedNumber: 18_000_000,
+      });
+
+      const result = await evaluateFactPair(factA, factB, fakeProvider);
+
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toBe("Same-document pair.");
+      expect(
+        await prisma.factRelationship.findUnique({
+          where: {
+            leftFactId_rightFactId: {
+              leftFactId: result.leftFactId,
+              rightFactId: result.rightFactId,
+            },
+          },
+        }),
+      ).toBeNull();
+    });
+
+    it("records a visible issue when relationship reasoning fails", async () => {
+      const entity = await createEntity(`${testPrefix} FailedReasoningCo`);
+      const docA = await createDocument("failed-reasoning-a");
+      const docB = await createDocument("failed-reasoning-b");
+      const factA = await createFact({
+        documentId: docA.id,
+        chunkId: docA.chunks[0]!.id,
+        entityId: entity.id,
+        subject: `${testPrefix} FailedReasoningCo`,
+        normalizedNumber: 12_000_000,
+      });
+      const factB = await createFact({
+        documentId: docB.id,
+        chunkId: docB.chunks[0]!.id,
+        entityId: entity.id,
+        subject: `${testPrefix} FailedReasoningCo`,
+        normalizedNumber: 18_000_000,
+      });
+      const failingProvider: RelationshipReasoningProvider = {
+        model: "failing-reasoner",
+        promptVersion: "failure-test-v1",
+        reasonRelationship: async () => {
+          throw new Error("simulated relationship provider outage");
+        },
+      };
+
+      const result = await evaluateFactPair(factA, factB, failingProvider);
+
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toBe("LLM reasoning failed.");
+      expect(result.classification).toBe("UNCERTAIN");
+      expect(
+        await prisma.processingIssue.findFirst({
+          where: { factId: factA.id, issueType: "RELATIONSHIP_REASONING_FAILURE" },
+        }),
+      ).toMatchObject({
+        documentId: docA.id,
+        severity: "ERROR",
+        message: "simulated relationship provider outage",
+      });
+    });
+
     it("is idempotent — evaluating the same pair twice returns the cached result", async () => {
       const entity = await createEntity(`${testPrefix} IdempotentCo`);
       const docA = await createDocument("idemp-a");
@@ -662,6 +750,64 @@ describe("Phase 9 — Cross-Document Relationship Reasoning", () => {
       });
 
       const result = await evaluateFactPair(factA, factB, fakeProvider);
+      expect(result.classification).toBe("RECONCILABLE");
+      expect(result.decisionMethod).toBe("LLM");
+    });
+
+    it("handles status chronology (active in January, resigned in March)", async () => {
+      const entity = await createEntity(`${testPrefix} ChronologyCo`);
+      const docA = await createDocument("chronology-a");
+      const docB = await createDocument("chronology-b");
+      const factA = await createFact({
+        documentId: docA.id,
+        chunkId: docA.chunks[0]!.id,
+        entityId: entity.id,
+        subject: `${testPrefix} ChronologyCo`,
+        predicate: "director_status",
+        valueRaw: "active",
+        valueType: "TEXT",
+        normalizedNumber: null,
+        currency: null,
+        unit: null,
+        context: {
+          time: { kind: "DATE", label: "January 2025", start: "2025-01-01", end: null },
+          scope: null,
+          statusAsOf: "2025-01-31",
+        },
+      });
+      const factB = await createFact({
+        documentId: docB.id,
+        chunkId: docB.chunks[0]!.id,
+        entityId: entity.id,
+        subject: `${testPrefix} ChronologyCo`,
+        predicate: "director_status",
+        valueRaw: "resigned",
+        valueType: "TEXT",
+        normalizedNumber: null,
+        currency: null,
+        unit: null,
+        context: {
+          time: { kind: "DATE", label: "March 2025", start: "2025-03-01", end: null },
+          scope: null,
+          statusAsOf: "2025-03-31",
+        },
+      });
+      fakeProvider.setResult({
+        classification: "RECONCILABLE",
+        confidence: 0.93,
+        explanation: "The director was active in January and later resigned in March.",
+        decisiveContext: [
+          {
+            dimension: "status date",
+            factA: "January 2025",
+            factB: "March 2025",
+            effect: "EXPLAINS_DIFFERENCE",
+          },
+        ],
+      });
+
+      const result = await evaluateFactPair(factA, factB, fakeProvider);
+
       expect(result.classification).toBe("RECONCILABLE");
       expect(result.decisionMethod).toBe("LLM");
     });

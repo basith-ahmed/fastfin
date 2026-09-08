@@ -203,6 +203,21 @@ export async function evaluateFactPair(
     };
   }
 
+  // Relationship reasoning is intentionally cross-document only. Candidate
+  // retrieval already enforces this, but keep the public pair evaluator safe.
+  if (factA.documentId === factB.documentId) {
+    return {
+      leftFactId,
+      rightFactId,
+      classification: "UNCERTAIN",
+      confidence: 0,
+      explanation: "Same-document facts are not evaluated as cross-document relationships.",
+      decisionMethod: "RULE",
+      skipped: true,
+      skipReason: "Same-document pair.",
+    };
+  }
+
   // Compatibility guard
   if (!isCompatiblePair(factA, factB)) {
     return {
@@ -220,7 +235,7 @@ export async function evaluateFactPair(
   // Fast deterministic corroboration path
   const deterministic = tryDeterministicCorroboration(factA, factB);
   if (deterministic) {
-    await persistRelationship(deterministic, null, "rule-only");
+    await persistRelationship(deterministic, null, null, "rule-only");
     return deterministic;
   }
 
@@ -308,7 +323,7 @@ export async function evaluateFactPair(
     skipped: false,
   };
 
-  await persistRelationship(result, llmResult, reasoner.promptVersion);
+  await persistRelationship(result, llmResult, reasoner.model, reasoner.promptVersion);
   return result;
 }
 
@@ -317,6 +332,7 @@ export async function evaluateFactPair(
 async function persistRelationship(
   result: FactPairResult,
   llmResult: RelationshipReasoningResult | null,
+  modelName: string | null,
   promptVersion: string,
 ): Promise<void> {
   await prisma.factRelationship.upsert({
@@ -335,7 +351,7 @@ async function persistRelationship(
       contextComparison: (llmResult?.decisiveContext as Prisma.InputJsonValue) ?? [],
       ruleSignals: { decisionMethod: result.decisionMethod },
       decisionMethod: result.decisionMethod,
-      modelName: result.decisionMethod === "LLM" ? undefined : null,
+      modelName,
       promptVersion,
     },
     update: {
@@ -345,6 +361,7 @@ async function persistRelationship(
       contextComparison: (llmResult?.decisiveContext as Prisma.InputJsonValue) ?? [],
       ruleSignals: { decisionMethod: result.decisionMethod },
       decisionMethod: result.decisionMethod,
+      modelName,
       promptVersion,
     },
   });

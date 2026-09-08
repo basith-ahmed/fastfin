@@ -121,7 +121,9 @@ export const relationshipReasoningResponseSchema = z.object({
   classification: relationshipClassificationSchema,
   confidence: z.number().min(0).max(1),
   explanation: z.string(),
-  decisiveContext: z.array(decisiveContextEntrySchema).optional(),
+  // OpenAI strict structured outputs require every property to be present.
+  // Providers return an empty array when no context dimension is decisive.
+  decisiveContext: z.array(decisiveContextEntrySchema),
 });
 
 export type RelationshipReasoningResult = z.infer<typeof relationshipReasoningResponseSchema>;
