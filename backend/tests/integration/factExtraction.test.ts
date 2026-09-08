@@ -155,6 +155,38 @@ describe("Phase 4 fact extraction orchestration", () => {
     expect(maximumActiveCalls).toBe(2);
   });
 
+  it("records a failed chunk and continues extracting the remaining chunks", async () => {
+    const { documentId, chunks } = await createDocumentWithChunks([
+      "[PAGE 1]\n\nThis chunk fails.",
+      "[PAGE 2]\n\nAcme reported revenue of $20 million.",
+    ]);
+    const provider = {
+      model: "test-resilient-model",
+      promptVersion: "fact-extraction-v1",
+      extractFacts: async ({ chunkText }: { chunkText: string }) => {
+        if (chunkText.includes("fails")) {
+          throw new Error("simulated provider outage");
+        }
+        return [validFactDraft];
+      },
+    };
+
+    const result = await extractDocumentFactDrafts(documentId, chunks, provider, redis, {
+      continueOnError: true,
+      minimumConfidence: 0.65,
+    });
+
+    expect(result).toMatchObject({
+      eligibleDrafts: [expect.objectContaining({ chunkId: chunks[1]?.id })],
+      lowConfidenceCount: 0,
+    });
+    expect(
+      await prisma.processingIssue.findFirstOrThrow({
+        where: { documentId, issueType: "LLM_REQUEST_FAILURE" },
+      }),
+    ).toMatchObject({ chunkId: chunks[0]?.id, stage: "EXTRACTING" });
+  });
+
   it("includes prompt version and model in cache identity", () => {
     const first = factExtractionCacheKey("fact-extraction-v1", "model-a", "chunk-sha");
     expect(factExtractionCacheKey("fact-extraction-v2", "model-a", "chunk-sha")).not.toBe(first);

@@ -15,6 +15,7 @@ import {
   removeDocumentJob,
   type DocumentJobData,
 } from "../../src/jobs/queue";
+import { createFactEmbedding } from "../../src/services/factEmbedding";
 import { closeDocumentWorker, createDocumentWorker } from "../../src/worker";
 import { createTestPdf } from "../fixtures/pdf";
 
@@ -52,6 +53,7 @@ async function cleanTestDocuments(): Promise<void> {
   await prisma.document.deleteMany({
     where: { originalFilename: { startsWith: testPrefix } },
   });
+  await prisma.entity.deleteMany({ where: { canonicalName: { startsWith: testPrefix } } });
   await Promise.all(documents.map(({ filePath }) => removeFileIfPresent(filePath)));
 }
 
@@ -287,12 +289,100 @@ describe("Phase 2 document ingestion", () => {
     expect(activeResponse.body.error.code).toBe("DOCUMENT_PROCESSING");
 
     await removeDocumentJob(documentId);
+    const entity = await prisma.entity.create({
+      data: {
+        canonicalName: `${testPrefix} Reprocess Entity`,
+        normalizedName: `${testPrefix}-reprocess-${randomUUID()}`,
+        entityType: "ORGANIZATION",
+        metadata: {},
+      },
+    });
+    const page = await prisma.documentPage.create({
+      data: {
+        documentId,
+        pageNumber: 1,
+        text: "Reprocess evidence",
+        textItems: [],
+        width: 612,
+        height: 792,
+      },
+    });
+    const chunk = await prisma.chunk.create({
+      data: {
+        documentId,
+        chunkIndex: 0,
+        pageStart: 1,
+        pageEnd: 1,
+        text: page.text,
+        tokenCount: 2,
+        sha256: `${documentId}-reprocess-chunk`,
+        metadata: {},
+      },
+    });
+    const fact = await prisma.fact.create({
+      data: {
+        documentId,
+        chunkId: chunk.id,
+        entityId: entity.id,
+        subjectRaw: entity.canonicalName,
+        subjectType: "ORGANIZATION",
+        subjectNormalized: entity.normalizedName,
+        predicateRaw: "revenue",
+        predicateCanonical: "revenue",
+        valueRaw: "$1 million",
+        valueType: "MONEY",
+        normalizedNumber: 1_000_000,
+        unit: "USD",
+        currency: "USD",
+        qualifiers: {},
+        normalizedContext: {},
+        confidence: 1,
+        extractionMethod: "HYBRID",
+        factSignature: randomUUID().replaceAll("-", "").padEnd(64, "0"),
+        evidence: {
+          create: {
+            documentId,
+            pageNumber: 1,
+            quote: page.text,
+            normalizedQuote: page.text.toLocaleLowerCase("en"),
+            contextBefore: "",
+            contextAfter: "",
+            verificationMethod: "EXACT",
+            verificationScore: 1,
+          },
+        },
+      },
+    });
+    await createFactEmbedding({
+      factId: fact.id,
+      comparisonText: "reprocess derived embedding",
+      embedding: [1, ...Array.from({ length: 767 }, () => 0)],
+      model: "reprocess-test",
+    });
+    await prisma.processingIssue.create({
+      data: {
+        documentId,
+        factId: fact.id,
+        stage: "EMBEDDING",
+        issueType: "EMBEDDING_FAILURE",
+        severity: "WARNING",
+        message: "Derived issue",
+        metadata: {},
+      },
+    });
+
     const response = await request(app).post(`/api/documents/${documentId}/reprocess`);
 
     expect(response.status).toBe(202);
     expect(response.body.data.status).toBe("QUEUED");
     expect(await getDocumentQueue().getJob(documentId)).toBeDefined();
-    expect(await prisma.processingJob.count({ where: { documentId } })).toBe(2);
+    expect(await prisma.processingJob.count({ where: { documentId } })).toBe(1);
+    expect(await prisma.documentPage.count({ where: { documentId } })).toBe(0);
+    expect(await prisma.chunk.count({ where: { documentId } })).toBe(0);
+    expect(await prisma.fact.count({ where: { documentId } })).toBe(0);
+    expect(await prisma.factEmbedding.count({ where: { factId: fact.id } })).toBe(0);
+    expect(await prisma.processingIssue.count({ where: { documentId } })).toBe(0);
+    expect(await prisma.entity.count({ where: { id: entity.id } })).toBe(1);
   });
 
   it("lets the worker parse and chunk a persisted document job", async () => {
@@ -307,7 +397,18 @@ describe("Phase 2 document ingestion", () => {
         },
       );
     const documentId = upload.body.data.id as string;
-    const handle = createDocumentWorker(false);
+    const handle = createDocumentWorker(false, {
+      extractionProvider: {
+        model: "worker-test-extraction",
+        promptVersion: "worker-test-v1",
+        extractFacts: async () => [],
+      },
+      embeddingProvider: {
+        model: "worker-test-embedding",
+        dimensions: 768,
+        embed: async () => Array.from({ length: 768 }, () => 0),
+      },
+    });
     const completion = waitForCompletion(handle.worker, documentId);
     void handle.worker.run();
 
@@ -323,18 +424,19 @@ describe("Phase 2 document ingestion", () => {
     });
     expect(processingJob).toMatchObject({
       status: "COMPLETED",
-      stage: "PARSING",
-      progress: 20,
+      stage: "COMPLETED",
+      progress: 100,
     });
-    expect(processingJob.metrics).toEqual({
-      phase: 3,
-      pageCount: 1,
-      chunkCount: 1,
-      issueCount: 0,
+    expect(processingJob.metrics).toMatchObject({
+      pages: 1,
+      chunks: 1,
+      factCandidates: 0,
+      factsAccepted: 0,
+      issues: 0,
     });
 
     const document = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
-    expect(document.status).toBe("PARSING");
+    expect(document.status).toBe("COMPLETED");
     expect(document.pageCount).toBe(1);
     expect(await prisma.documentPage.count({ where: { documentId } })).toBe(1);
     expect(await prisma.chunk.count({ where: { documentId } })).toBe(1);

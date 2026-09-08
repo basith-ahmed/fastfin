@@ -242,32 +242,51 @@ export async function reprocessDocument(documentId: string): Promise<Document> {
     where: { documentId },
     orderBy: { createdAt: "desc" },
   });
-  const processingJob = await prisma.processingJob.create({
-    data: {
-      documentId,
-      bullJobId: documentId,
-      stage: "QUEUED",
-      progress: 0,
-      attempt: (latestJob?.attempt ?? 0) + 1,
-      status: "QUEUED",
-      metrics: {},
-    },
+  const processingJob = await prisma.$transaction(async (transaction) => {
+    await transaction.processingIssue.deleteMany({ where: { documentId } });
+    await transaction.fact.deleteMany({ where: { documentId } });
+    await transaction.chunk.deleteMany({ where: { documentId } });
+    await transaction.documentPage.deleteMany({ where: { documentId } });
+    await transaction.modelInvocation.deleteMany({ where: { documentId } });
+    await transaction.processingJob.deleteMany({ where: { documentId } });
+
+    const freshJob = await transaction.processingJob.create({
+      data: {
+        documentId,
+        bullJobId: documentId,
+        stage: "QUEUED",
+        progress: 0,
+        attempt: (latestJob?.attempt ?? 0) + 1,
+        status: "QUEUED",
+        metrics: {},
+      },
+    });
+    await transaction.document.update({
+      where: { id: documentId },
+      data: {
+        status: "QUEUED",
+        pageCount: null,
+        processingStartedAt: null,
+        processingCompletedAt: null,
+      },
+    });
+    return freshJob;
   });
 
   try {
     await enqueueDocument(documentId);
   } catch (error: unknown) {
-    await prisma.processingJob.delete({ where: { id: processingJob.id } });
+    const message = error instanceof Error ? error.message : "Unknown queue failure.";
+    await prisma.$transaction([
+      prisma.processingJob.update({
+        where: { id: processingJob.id },
+        data: { status: "FAILED", error: message, finishedAt: new Date() },
+      }),
+      prisma.document.update({ where: { id: documentId }, data: { status: "FAILED" } }),
+    ]);
     logger.error({ err: error, documentId }, "Failed to requeue document");
     throw new AppError(503, "QUEUE_UNAVAILABLE", "The document could not be queued.");
   }
 
-  return prisma.document.update({
-    where: { id: documentId },
-    data: {
-      status: "QUEUED",
-      processingStartedAt: null,
-      processingCompletedAt: null,
-    },
-  });
+  return getDocument(documentId);
 }

@@ -93,7 +93,12 @@ export async function extractDocumentFactDrafts(
   chunks: ExtractionChunk[],
   provider: FactExtractionProvider,
   cache: ExtractionCache,
-  options: { concurrency?: number; minimumConfidence?: number } = {},
+  options: {
+    concurrency?: number;
+    minimumConfidence?: number;
+    continueOnError?: boolean;
+    onProgress?: (processed: number, total: number) => Promise<void> | void;
+  } = {},
 ): Promise<DocumentFactExtractionResult> {
   const concurrency = options.concurrency ?? env.LLM_MAX_CONCURRENCY;
   const minimumConfidence = options.minimumConfidence ?? env.FACT_MIN_CONFIDENCE;
@@ -104,22 +109,41 @@ export async function extractDocumentFactDrafts(
     throw new Error("Fact extraction minimum confidence must be between 0 and 1.");
   }
 
-  const extractedByChunk = await mapWithConcurrency(chunks, concurrency, (chunk) =>
-    extractChunk(documentId, chunk, provider, cache),
-  );
-  const extracted = extractedByChunk.flatMap((drafts, index) => {
-    const chunk = chunks[index];
-    if (!chunk) {
-      return [];
+  let processed = 0;
+  let progressUpdates = Promise.resolve();
+  const extractedByChunk = await mapWithConcurrency(chunks, concurrency, async (chunk) => {
+    try {
+      return { chunk, drafts: await extractChunk(documentId, chunk, provider, cache), error: null };
+    } catch (error: unknown) {
+      if (!options.continueOnError) {
+        throw error;
+      }
+      return { chunk, drafts: [], error };
+    } finally {
+      processed += 1;
+      if (options.onProgress) {
+        const completed = processed;
+        progressUpdates = progressUpdates.then(() => options.onProgress?.(completed, chunks.length));
+        await progressUpdates;
+      }
     }
-    return drafts.map((draft) => ({ chunkId: chunk.id, chunkIndex: chunk.chunkIndex, draft }));
   });
+  const extracted = extractedByChunk.flatMap(({ chunk, drafts }) =>
+    drafts.map((draft) => ({ chunkId: chunk.id, chunkIndex: chunk.chunkIndex, draft })),
+  );
   const eligibleDrafts = extracted.filter(({ draft }) => draft.confidence >= minimumConfidence);
   const lowConfidenceDrafts = extracted.filter(({ draft }) => draft.confidence < minimumConfidence);
+  const failedChunks = extractedByChunk.filter(
+    (result): result is typeof result & { error: unknown } => result.error !== null,
+  );
 
   await prisma.$transaction(async (transaction) => {
     await transaction.processingIssue.deleteMany({
-      where: { documentId, stage: "EXTRACTING", issueType: "LOW_FACT_CONFIDENCE" },
+      where: {
+        documentId,
+        stage: "EXTRACTING",
+        issueType: { in: ["LOW_FACT_CONFIDENCE", "LLM_REQUEST_FAILURE"] },
+      },
     });
     if (lowConfidenceDrafts.length > 0) {
       await transaction.processingIssue.createMany({
@@ -140,7 +164,27 @@ export async function extractDocumentFactDrafts(
         })),
       });
     }
+    if (failedChunks.length > 0) {
+      await transaction.processingIssue.createMany({
+        data: failedChunks.map(({ chunk, error }) => ({
+          documentId,
+          chunkId: chunk.id,
+          stage: "EXTRACTING",
+          issueType: "LLM_REQUEST_FAILURE" as const,
+          severity: "ERROR" as const,
+          message: "Fact extraction failed for this chunk after provider retries.",
+          metadata: {
+            chunkIndex: chunk.chunkIndex,
+            model: provider.model,
+            error: error instanceof Error ? error.message : "Unknown fact extraction failure.",
+          } as Prisma.InputJsonValue,
+        })),
+      });
+    }
   });
 
-  return { eligibleDrafts, lowConfidenceCount: lowConfidenceDrafts.length };
+  return {
+    eligibleDrafts,
+    lowConfidenceCount: lowConfidenceDrafts.length,
+  };
 }

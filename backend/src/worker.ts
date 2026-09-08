@@ -1,8 +1,12 @@
 import { Worker } from "bullmq";
 import type IORedis from "ioredis";
 
-import { connectDatabase, disconnectDatabase, prisma } from "./config/database";
+import { connectDatabase, disconnectDatabase } from "./config/database";
 import { closeRedisConnection, createRedisConnection } from "./config/redis";
+import {
+  processDocument,
+  type DocumentProcessorDependencies,
+} from "./jobs/documentProcessor";
 import {
   DOCUMENT_JOB_NAME,
   DOCUMENT_QUEUE_NAME,
@@ -10,7 +14,6 @@ import {
   type DocumentJob,
   type DocumentJobData,
 } from "./jobs/queue";
-import { parseAndPersistDocument } from "./services/documentParsing";
 import { logger } from "./utils/logger";
 
 export type DocumentWorkerHandle = {
@@ -18,112 +21,36 @@ export type DocumentWorkerHandle = {
   connection: IORedis;
 };
 
-export async function processDocumentJob(job: DocumentJob): Promise<void> {
+export async function processDocumentJob(
+  job: DocumentJob,
+  dependencies: DocumentProcessorDependencies = {},
+): Promise<void> {
   const { documentId } = documentJobDataSchema.parse(job.data);
   const bullJobId = job.id ?? documentId;
-
-  try {
-    const document = await prisma.document.findUnique({ where: { id: documentId } });
-
-    if (!document) {
-      throw new Error(`Document ${documentId} does not exist.`);
-    }
-
-    const storedJob = await prisma.processingJob.findFirst({
-      where: { documentId, bullJobId },
-      orderBy: { createdAt: "desc" },
-    });
-
-    if (!storedJob) {
-      throw new Error(`ProcessingJob for document ${documentId} does not exist.`);
-    }
-
-    const startedAt = new Date();
-    await prisma.$transaction([
-      prisma.document.update({
-        where: { id: documentId },
-        data: {
-          status: "PARSING",
-          processingStartedAt: startedAt,
-          processingCompletedAt: null,
-        },
-      }),
-      prisma.processingJob.update({
-        where: { id: storedJob.id },
-        data: {
-          status: "RUNNING",
-          stage: "PARSING",
-          progress: 5,
-          attempt: job.attemptsMade + 1,
-          startedAt,
-          finishedAt: null,
-          error: null,
-        },
-      }),
-    ]);
-
-    const result = await parseAndPersistDocument(document.id, document.filePath);
-
-    await prisma.processingJob.update({
-      where: { id: storedJob.id },
-      data: {
-        status: "COMPLETED",
-        stage: "PARSING",
-        progress: 20,
-        finishedAt: new Date(),
-        metrics: { phase: 3, ...result },
-      },
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown worker error.";
-
-    await prisma
-      .$transaction([
-        prisma.processingIssue.deleteMany({
-          where: { documentId, stage: "PARSING", issueType: "PDF_PARSE_FAILURE" },
-        }),
-        prisma.processingIssue.create({
-          data: {
-            documentId,
-            stage: "PARSING",
-            issueType: "PDF_PARSE_FAILURE",
-            severity: "ERROR",
-            message: "The PDF could not be parsed.",
-            metadata: { error: message },
-          },
-        }),
-        prisma.document.updateMany({
-          where: { id: documentId },
-          data: { status: "FAILED" },
-        }),
-        prisma.processingJob.updateMany({
-          where: { documentId, bullJobId },
-          data: {
-            status: "FAILED",
-            stage: "PARSING",
-            error: message,
-            finishedAt: new Date(),
-          },
-        }),
-      ])
-      .catch((updateError: unknown) => {
-        logger.error({ err: updateError, documentId, bullJobId }, "Failed to record job failure");
-      });
-
-    throw error;
-  }
+  await processDocument(
+    documentId,
+    { bullJobId, attempt: job.attemptsMade + 1 },
+    dependencies,
+  );
 }
 
-export function createDocumentWorker(autorun = true): DocumentWorkerHandle {
+export function createDocumentWorker(
+  autorun = true,
+  dependencies: DocumentProcessorDependencies = {},
+): DocumentWorkerHandle {
   const connection = createRedisConnection("document-worker");
+  const processorDependencies: DocumentProcessorDependencies = {
+    extractionCache: connection,
+    ...dependencies,
+  };
   const worker = new Worker<DocumentJobData, void, typeof DOCUMENT_JOB_NAME>(
     DOCUMENT_QUEUE_NAME,
-    processDocumentJob,
+    (job) => processDocumentJob(job, processorDependencies),
     { autorun, connection },
   );
 
   worker.on("completed", (job) => {
-    logger.info({ documentId: job.data.documentId, jobId: job.id }, "Document parsing completed");
+    logger.info({ documentId: job.data.documentId, jobId: job.id }, "Document processing completed");
   });
   worker.on("failed", (job, error) => {
     logger.error(
