@@ -182,6 +182,49 @@ export async function getDocument(documentId: string): Promise<Document> {
   return document;
 }
 
+export async function getDocumentDetail(documentId: string) {
+  const document = await getDocument(documentId);
+  const [facts, relationships, issues, latestProcessingJob] = await prisma.$transaction([
+    prisma.fact.count({ where: { documentId } }),
+    prisma.factRelationship.count({
+      where: {
+        OR: [{ leftFact: { documentId } }, { rightFact: { documentId } }],
+      },
+    }),
+    prisma.processingIssue.count({ where: { documentId } }),
+    prisma.processingJob.findFirst({
+      where: { documentId },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  return {
+    document,
+    counts: { facts, relationships, issues },
+    latestProcessingJob,
+    metrics: latestProcessingJob?.metrics ?? {},
+  };
+}
+
+export async function listDocumentPages(
+  documentId: string,
+  input: { page: number; pageSize: number },
+) {
+  await getDocument(documentId);
+  const where = { documentId };
+  const [pages, total] = await prisma.$transaction([
+    prisma.documentPage.findMany({
+      where,
+      orderBy: { pageNumber: "asc" },
+      skip: (input.page - 1) * input.pageSize,
+      take: input.pageSize,
+    }),
+    prisma.documentPage.count({ where }),
+  ]);
+
+  return { pages, total };
+}
+
 export async function getDocumentStatus(documentId: string) {
   const document = await getDocument(documentId);
   const processingJob = await prisma.processingJob.findFirst({

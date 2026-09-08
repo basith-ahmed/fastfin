@@ -7,9 +7,10 @@ import { z } from "zod";
 
 import {
   deleteDocument,
-  getDocument,
+  getDocumentDetail,
   getDocumentFile,
   getDocumentStatus,
+  listDocumentPages,
   listDocuments,
   reprocessDocument,
   uploadDocument,
@@ -20,6 +21,10 @@ const listDocumentsSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   status: z.enum(DocumentStatus).optional(),
+});
+const paginationSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(20),
 });
 
 function serializeDocument(document: Document) {
@@ -60,8 +65,29 @@ export const getDocuments: RequestHandler = async (req, res) => {
 };
 
 export const getDocumentById: RequestHandler = async (req, res) => {
-  const document = await getDocument(parseDocumentId(req.params.id));
-  res.status(200).json({ data: serializeDocument(document) });
+  const result = await getDocumentDetail(parseDocumentId(req.params.id));
+  res.status(200).json({
+    data: {
+      ...serializeDocument(result.document),
+      counts: result.counts,
+      latestProcessingJob: serializeProcessingJob(result.latestProcessingJob),
+      metrics: result.metrics,
+    },
+  });
+};
+
+export const getDocumentPagesById: RequestHandler = async (req, res) => {
+  const input = paginationSchema.parse(req.query);
+  const result = await listDocumentPages(parseDocumentId(req.params.id), input);
+  res.status(200).json({
+    data: result.pages,
+    pagination: {
+      page: input.page,
+      pageSize: input.pageSize,
+      total: result.total,
+      totalPages: Math.ceil(result.total / input.pageSize),
+    },
+  });
 };
 
 export const getDocumentStatusById: RequestHandler = async (req, res) => {

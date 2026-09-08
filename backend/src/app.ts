@@ -6,6 +6,12 @@ import pinoHttp from "pino-http";
 import { env } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
 import { documentsRouter } from "./routes/documents";
+import {
+  factsRouter,
+  issuesRouter,
+  knowledgeRouter,
+  relationshipsRouter,
+} from "./routes/knowledge";
 import { logger } from "./utils/logger";
 
 export function createApp(): express.Express {
@@ -26,6 +32,10 @@ export function createApp(): express.Express {
   });
 
   app.use("/api/documents", documentsRouter);
+  app.use("/api/facts", factsRouter);
+  app.use("/api/relationships", relationshipsRouter);
+  app.use("/api/issues", issuesRouter);
+  app.use("/api/knowledge", knowledgeRouter);
 
   app.use((_req, res) => {
     res.status(404).json({
