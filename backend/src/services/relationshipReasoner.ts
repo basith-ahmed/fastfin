@@ -8,7 +8,7 @@ import type {
   RelationshipReasoningResult,
 } from "../ai/types";
 import { prisma } from "../config/database";
-import { logger } from "../utils/logger";
+import { workerLogger } from "../utils/logger";
 import { retrieveFactCandidates } from "./factEmbedding";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -317,7 +317,7 @@ export async function evaluateFactPair(
     llmResult = await reasoner.reasonRelationship({ factA: inputA, factB: inputB });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown reasoning failure.";
-    logger.error({ err: error, leftFactId, rightFactId }, "Relationship reasoning failed");
+    workerLogger.error({ err: error, leftFactId, rightFactId }, "Relationship reasoning failed");
 
     // Record issue and return
     await prisma.processingIssue.create({
@@ -448,13 +448,30 @@ export async function evaluateDocumentRelationships(
   // Track evaluated pairs to avoid duplicates within this run
   const evaluatedPairs = new Set<string>();
 
-  for (const fact of facts) {
+  workerLogger.info(
+    { documentId, factCount: facts.length },
+    "Starting cross-document candidate retrieval and relationship evaluation",
+  );
+  for (const [factIndex, fact] of facts.entries()) {
     let candidates;
     try {
+      workerLogger.info(
+        { documentId, factId: fact.id, fact: `${factIndex + 1}/${facts.length}` },
+        "Retrieving relationship candidates for fact",
+      );
       candidates = await retrieveFactCandidates(fact.id);
+      workerLogger.info(
+        {
+          documentId,
+          factId: fact.id,
+          fact: `${factIndex + 1}/${facts.length}`,
+          candidateCount: candidates.length,
+        },
+        "Relationship candidates retrieved for fact",
+      );
     } catch (error: unknown) {
-      logger.warn(
-        { err: error, factId: fact.id },
+      workerLogger.warn(
+        { err: error, documentId, factId: fact.id },
         "Failed to retrieve candidates for fact — skipping",
       );
       continue;
@@ -469,6 +486,17 @@ export async function evaluateDocumentRelationships(
       result.candidatesEvaluated += 1;
 
       try {
+        const startedAt = Date.now();
+        workerLogger.info(
+          {
+            documentId,
+            factId: fact.id,
+            candidateId: candidate.factId,
+            similarity: candidate.similarity,
+            matchReason: candidate.matchReason,
+          },
+          "Evaluating cross-document fact pair",
+        );
         const pairResult = await evaluateFactPair(fact, candidate.fact, provider);
         if (pairResult.skipped) {
           result.skipped += 1;
@@ -477,10 +505,22 @@ export async function evaluateDocumentRelationships(
           result.relationshipsCreated += 1;
         }
         result.byType[pairResult.classification] += 1;
+        workerLogger.info(
+          {
+            documentId,
+            factId: fact.id,
+            candidateId: candidate.factId,
+            classification: pairResult.classification,
+            decisionMethod: pairResult.decisionMethod,
+            skipped: pairResult.skipped,
+            durationMs: Date.now() - startedAt,
+          },
+          "Cross-document fact pair evaluation completed",
+        );
       } catch (error: unknown) {
         result.issueCount += 1;
-        logger.error(
-          { err: error, factId: fact.id, candidateId: candidate.factId },
+        workerLogger.error(
+          { err: error, documentId, factId: fact.id, candidateId: candidate.factId },
           "Unexpected error evaluating fact pair",
         );
       }

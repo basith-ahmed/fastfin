@@ -4,6 +4,7 @@ import { prisma } from "../config/database";
 import { chunkDocument } from "../pdf/chunker";
 import { parsePdf } from "../pdf/parser";
 import { assembleDocumentPages } from "../pdf/textAssembler";
+import { workerLogger } from "../utils/logger";
 
 const PARSING_STAGE = "PARSING";
 const parsingIssueTypes = ["PDF_PARSE_FAILURE", "EMPTY_PAGE", "OCR_REQUIRED"] as const;
@@ -22,9 +23,24 @@ export async function parseAndPersistDocument(
   documentId: string,
   filePath: string,
 ): Promise<DocumentParsingResult> {
+  const startedAt = Date.now();
+  workerLogger.info({ documentId, filePath }, "Reading and parsing PDF");
   const parsed = await parsePdf(filePath);
+  workerLogger.info(
+    { documentId, parsedPages: parsed.pages.length, durationMs: Date.now() - startedAt },
+    "PDF text extraction completed",
+  );
   const pages = assembleDocumentPages(parsed.pages);
   const chunks = chunkDocument(pages);
+  workerLogger.info(
+    {
+      documentId,
+      pageCount: pages.length,
+      chunkCount: chunks.length,
+      emptyPages: pages.filter((page) => page.text.trim().length === 0).length,
+    },
+    "Created document pages and text chunks",
+  );
   const issues = pages.flatMap((page) => {
     if (page.text.trim().length > 0) {
       return [];
@@ -100,6 +116,17 @@ export async function parseAndPersistDocument(
       data: { pageCount: pages.length },
     });
   });
+
+  workerLogger.info(
+    {
+      documentId,
+      pageCount: pages.length,
+      chunkCount: chunks.length,
+      issueCount: issues.length,
+      durationMs: Date.now() - startedAt,
+    },
+    "Persisted parsed PDF pages, chunks, and parsing issues",
+  );
 
   return { pageCount: pages.length, chunkCount: chunks.length, issueCount: issues.length };
 }

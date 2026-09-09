@@ -63,12 +63,26 @@ async function extractChunk(
   const cached = await cache.get(cacheKey);
   if (cached !== null) {
     try {
-      return factDraftArraySchema.parse(JSON.parse(cached) as unknown);
+      const drafts = factDraftArraySchema.parse(JSON.parse(cached) as unknown);
+      workerLogger.info(
+        { documentId, chunkId: chunk.id, chunkIndex: chunk.chunkIndex, candidateCount: drafts.length },
+        "Using cached fact extraction result for chunk",
+      );
+      return drafts;
     } catch {
+      workerLogger.warn(
+        { documentId, chunkId: chunk.id, chunkIndex: chunk.chunkIndex },
+        "Ignoring invalid cached fact extraction result",
+      );
       // Invalid cache data is ignored and replaced only after a validated provider response.
     }
   }
 
+  const startedAt = Date.now();
+  workerLogger.info(
+    { documentId, chunkId: chunk.id, chunkIndex: chunk.chunkIndex, model: provider.model },
+    "Calling LLM for fact extraction",
+  );
   const drafts = factDraftArraySchema.parse(
     await provider.extractFacts({
       documentId,
@@ -79,6 +93,17 @@ async function extractChunk(
     }),
   );
   await cache.set(cacheKey, JSON.stringify(drafts));
+  workerLogger.info(
+    {
+      documentId,
+      chunkId: chunk.id,
+      chunkIndex: chunk.chunkIndex,
+      model: provider.model,
+      candidateCount: drafts.length,
+      durationMs: Date.now() - startedAt,
+    },
+    "LLM fact extraction completed for chunk",
+  );
   return drafts;
 }
 

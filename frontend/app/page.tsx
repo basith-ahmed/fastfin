@@ -1,18 +1,12 @@
-import { FileText } from "lucide-react";
-
 import { RecentDocuments } from "@/components/dashboard/recent-documents";
 import { SummaryMetrics } from "@/components/dashboard/summary-metrics";
 import { UploadPanel } from "@/components/dashboard/upload-panel";
 import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
 
 export default function Home() {
   return (
     <div className="space-y-8">
-      <PageHeader
-        title="Overview"
-        action={<Button asChild><a href="#upload"><FileText /> Upload PDF</a></Button>}
-      />
+      <PageHeader title="Overview" />
       <section className="space-y-4">
         <h2 className="text-lg font-semibold tracking-tight">Summary</h2>
         <SummaryMetrics />

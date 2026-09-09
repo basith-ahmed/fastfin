@@ -5,6 +5,7 @@ import { GeminiEmbeddingProvider, validateEmbedding } from "../ai/geminiEmbeddin
 import type { EmbeddingProvider } from "../ai/types";
 import { prisma } from "../config/database";
 import { env } from "../config/env";
+import { workerLogger } from "../utils/logger";
 
 const UNRESOLVED_SUBJECT_THRESHOLD = 0.85;
 const UNRESOLVED_VECTOR_THRESHOLD_BONUS = 0.1;
@@ -194,7 +195,16 @@ export async function embedDocumentFacts(
   let cachedCount = 0;
   let issueCount = 0;
 
-  for (const fact of facts) {
+  workerLogger.info(
+    { documentId, factCount: facts.length, model: embeddingProvider.model },
+    "Starting document fact embedding",
+  );
+  for (const [index, fact] of facts.entries()) {
+    const startedAt = Date.now();
+    workerLogger.info(
+      { documentId, factId: fact.id, fact: `${index + 1}/${facts.length}`, model: embeddingProvider.model },
+      "Generating embedding for fact",
+    );
     try {
       const result = await embedFact(fact.id, embeddingProvider);
       if (result.cached) {
@@ -205,8 +215,22 @@ export async function embedDocumentFacts(
       await prisma.processingIssue.deleteMany({
         where: { factId: fact.id, stage: "EMBEDDING", issueType: "EMBEDDING_FAILURE" },
       });
+      workerLogger.info(
+        {
+          documentId,
+          factId: fact.id,
+          fact: `${index + 1}/${facts.length}`,
+          cached: result.cached,
+          durationMs: Date.now() - startedAt,
+        },
+        result.cached ? "Using cached fact embedding" : "Fact embedding generated and persisted",
+      );
     } catch (error: unknown) {
       issueCount += 1;
+      workerLogger.error(
+        { err: error, documentId, factId: fact.id, fact: `${index + 1}/${facts.length}` },
+        "Fact embedding failed",
+      );
       await prisma.processingIssue.deleteMany({
         where: { factId: fact.id, stage: "EMBEDDING", issueType: "EMBEDDING_FAILURE" },
       });

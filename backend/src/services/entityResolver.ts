@@ -1,6 +1,7 @@
 import { Prisma, type Entity, type EntityAlias, type EntityType } from "@prisma/client";
 
 import { prisma } from "../config/database";
+import { workerLogger } from "../utils/logger";
 
 const DEFAULT_SIMILARITY_THRESHOLD = 0.85;
 const DEFAULT_CANDIDATE_LIMIT = 5;
@@ -259,7 +260,11 @@ export async function resolveDocumentFactEntities(
     where: { documentId, stage: "ENTITY_RESOLUTION", issueType: "AMBIGUOUS_ENTITY" },
   });
 
-  for (const fact of facts) {
+  workerLogger.info(
+    { documentId, factCount: facts.length },
+    "Starting entity resolution for document facts",
+  );
+  for (const [index, fact] of facts.entries()) {
     try {
       const result = await resolveEntity({
         subject: fact.subjectRaw,
@@ -272,8 +277,23 @@ export async function resolveDocumentFactEntities(
       } else {
         matchedCount += 1;
       }
+      workerLogger.info(
+        {
+          documentId,
+          factId: fact.id,
+          fact: `${index + 1}/${facts.length}`,
+          entityId: result.entity.id,
+          matchMethod: result.matchMethod,
+          similarity: result.similarity,
+        },
+        "Resolved fact subject to entity",
+      );
     } catch (error) {
       issueCount += 1;
+      workerLogger.warn(
+        { err: error, documentId, factId: fact.id, fact: `${index + 1}/${facts.length}` },
+        "Could not resolve fact subject to an entity",
+      );
       await prisma.processingIssue.create({
         data: {
           documentId,

@@ -53,6 +53,17 @@ export function createDocumentWorker(
     { autorun, connection },
   );
 
+  worker.on("active", (job, previousState) => {
+    workerLogger.info(
+      {
+        documentId: job.data.documentId,
+        jobId: job.id,
+        attempt: job.attemptsMade + 1,
+        previousState,
+      },
+      "Document processing job is active",
+    );
+  });
   worker.on("completed", (job) => {
     workerLogger.info(
       { documentId: job.data.documentId, jobId: job.id },
@@ -67,6 +78,15 @@ export function createDocumentWorker(
   });
   worker.on("error", (error) => {
     workerLogger.error({ err: error }, "Document worker internal error");
+  });
+  worker.on("stalled", (jobId, previousState) => {
+    workerLogger.warn(
+      { jobId, previousState },
+      "Document processing job stalled and will be recovered by BullMQ",
+    );
+  });
+  worker.on("drained", () => {
+    workerLogger.debug({ queue: DOCUMENT_QUEUE_NAME }, "Document queue is drained; waiting for jobs");
   });
 
   return { worker, connection };
