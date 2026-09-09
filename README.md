@@ -4,7 +4,7 @@ FastFin extracts atomic, evidence-grounded facts from corporate and financial PD
 
 ## Video Demo
 
-Video Link: [https://drive.google.com/file/d/1gDHd22PncUFfPb5XYLwJZy8Gd16deWPp/view?usp=sharing]
+Video Link: [https://drive.google.com/file/d/1e5I_tYms18mTyGtjMoBP5td2Y9nm-rME/view?usp=sharing]
 
 The demo video walks through:
 1. Uploading and asynchronously processing financial PDF filings.
